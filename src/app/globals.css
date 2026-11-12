@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+/* Temni način krmili atribut `data-theme="dark"` na <html> (nastavi ga
+   ThemeScript pred prvim izrisom, glej src/lib/theme.ts). Ta varianta
+   omogoča `dark:` pomožne razrede po celi aplikaciji. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  --background: #f9fafb; /* gray-50 */
+  --foreground: #171717;
+}
+
+[data-theme="dark"] {
+  --background: #030712; /* gray-950 */
+  --foreground: #ededed;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-rubik);
+}
+
+/* Utripajoč kazalec (kurzor) samo v vnosnih poljih, ne na navadnem besedilu
+   strani (npr. ob Chromovem "caret browsing" ali kliku v besedilo). */
+* {
+  caret-color: transparent;
+}
+input,
+textarea,
+[contenteditable="true"] {
+  caret-color: auto;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+/* ===== Samodejna prijava iz huba (TomsStudios) ===== */
+/* Nalagalnik je privzeto skrit. Med izmenjavo SSO žetonov ga pokaže (in skrije
+   obrazec) atribut `data-sso="pending"` na <html>, ki ga postavi sinhroni
+   skript v <head> še pred izrisom (src/lib/sso.ts); ob neuspehu ga useEffect
+   na /login vrne na "idle". */
+#sso-loader {
+  display: none;
+}
+[data-sso="pending"] #sso-loader {
+  display: flex;
+}
+[data-sso="pending"] #login-card {
+  display: none;
+}
+
+/* Skrit drsnik (vsebina se še vedno drsa — kolesce, prst, tipkovnica). */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Števec: kratek „pop“ ob novem vnosu (ključ elementa = število). */
+@keyframes counter-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+.counter-pop {
+  animation: counter-pop 350ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ---- Žrebanje skupin (components/draw/DrawShow.tsx) ---- */
+@keyframes draw-pop {
+  0% { opacity: 0; transform: translateY(18px) scale(0.6); }
+  60% { opacity: 1; transform: translateY(-4px) scale(1.08); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes draw-land {
+  0% { transform: scale(1.25); filter: brightness(2); }
+  100% { transform: none; filter: none; }
+}
+@keyframes draw-burst {
+  0% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(var(--rot)) scale(0.6); }
+}
+@keyframes draw-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(124 58 237 / 0.55); }
+  50% { box-shadow: 0 0 0 18px rgb(124 58 237 / 0); }
+}
+.draw-pop { animation: draw-pop 520ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+.draw-land { animation: draw-land 600ms ease-out both; }
+.draw-burst { animation: draw-burst 1100ms cubic-bezier(0.1, 0.8, 0.3, 1) forwards; }
+.draw-pulse { animation: draw-pulse 900ms ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .draw-pop, .draw-land, .draw-burst, .draw-pulse { animation-duration: 1ms; animation-iteration-count: 1; }
+}
