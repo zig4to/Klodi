@@ -6,8 +6,8 @@ import type { MetadataRoute } from "next";
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: "/",
-    name: "Claude Cloud",
-    short_name: "Claude Cloud",
+    name: "Klodi",
+    short_name: "Klodi",
     description: "Claude Code v oblaku nad tvojimi GitHub repozitoriji.",
     start_url: "/",
     scope: "/",

@@ -20,7 +20,7 @@ export default function ServiceWorkerRegister() {
       if (typeof caches !== "undefined") {
         caches
           .keys()
-          .then((keys) => keys.filter((k) => k.startsWith("claudecloud-")).forEach((k) => caches.delete(k)))
+          .then((keys) => keys.filter((k) => k.startsWith("klodi-")).forEach((k) => caches.delete(k)))
           .catch(() => {});
       }
       return;

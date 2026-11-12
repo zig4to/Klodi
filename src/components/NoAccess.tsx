@@ -6,7 +6,7 @@ export default function NoAccess() {
       <Logo className="mx-auto mb-4 h-14 w-14" />
       <h1 className="text-xl font-semibold">Ni dostopa</h1>
       <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-        Claude Cloud ti mora odobriti skrbnik v Bitneverse.
+        Klodi ti mora odobriti skrbnik v Bitneverse.
       </p>
     </div>
   );

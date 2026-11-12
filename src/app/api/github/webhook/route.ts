@@ -22,9 +22,9 @@ export async function POST(req: Request) {
     await db.from("cloud_installations").delete().eq("installation_id", p.installation.id);
   }
 
-  if (event === "workflow_run" && p.action === "completed" && p.workflow_run?.name === "Claude Cloud") {
+  if (event === "workflow_run" && p.action === "completed" && p.workflow_run?.name === "Klodi") {
     const wr = p.workflow_run;
-    const m = /Claude Cloud ([0-9a-f-]{36})/.exec(wr.display_title || "");
+    const m = /Klodi ([0-9a-f-]{36})/.exec(wr.display_title || "");
     if (m) {
       const { data: run } = await db.from("cloud_runs").select("id,status,user_id").eq("id", m[1]).maybeSingle();
       if (run && (run.status === "queued" || run.status === "running")) {

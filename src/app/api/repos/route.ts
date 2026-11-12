@@ -66,7 +66,7 @@ export const PATCH = route(async (req: Request) => {
   return { ok: true, repo: data };
 });
 
-// DELETE: odstrani iz Claude Cloud (workflow v repozitoriju ostane)
+// DELETE: odstrani iz Klodi (workflow v repozitoriju ostane)
 export const DELETE = route(async (req: Request) => {
   const user = await requireUser();
   const b = await body<{ repo_id: string }>(req);

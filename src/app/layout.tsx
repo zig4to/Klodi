@@ -11,7 +11,7 @@ const rubik = Rubik({
 });
 
 export const metadata: Metadata = {
-  title: "Claude Cloud",
+  title: "Klodi",
   description: "Claude Code v oblaku nad tvojimi GitHub repozitoriji.",
   other: { google: "notranslate" },
 };

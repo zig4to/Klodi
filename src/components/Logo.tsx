@@ -1,4 +1,4 @@
-// Znak aplikacije Claude Cloud: bel oblak na prelivu #0ea5e9 → #6366f1
+// Znak aplikacije Klodi: bel oblak na prelivu #0ea5e9 → #6366f1
 // (enako kot src/app/icon.svg in public/icon.svg — ob spremembi posodobi vse tri).
 export default function Logo({ className = "h-8 w-8" }: { className?: string }) {
   return (

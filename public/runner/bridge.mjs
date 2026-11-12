@@ -1,4 +1,4 @@
-// Claude Cloud runner: teče v GitHub Actions v repozitoriju uporabnika.
+// Klodi runner: teče v GitHub Actions v repozitoriju uporabnika.
 //   node bridge.mjs claude   — vzame nalogo z API-ja, zažene `claude -p` (stream-json) in sproti
 //                              pošilja elemente pogovora (ista oblika kot zaganjalnik/claude.js)
 //   node bridge.mjs finish   — commit + push v main ali veja + PR, javi rezultat
@@ -8,7 +8,7 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, relative } from "node:path";
 
 const API = process.env.CC_API, RUN = process.env.CC_RUN, TOKEN = process.env.CC_TOKEN;
-const STATE = join(process.env.RUNNER_TEMP || "/tmp", "claude-cloud.json");
+const STATE = join(process.env.RUNNER_TEMP || "/tmp", "klodi.json");
 if (!API || !RUN || !TOKEN) { console.error("Manjka CC_API/CC_RUN/CC_TOKEN"); process.exit(1); }
 
 async function post(path, body) {
@@ -145,11 +145,11 @@ async function finish() {
   if (!job || job.mode === "plan" || code) return; // že javljeno
   const out = { result, status: "done", session_id: session };
   try {
-    git("config", "user.name", "Claude Cloud");
-    git("config", "user.email", "claude-cloud@users.noreply.github.com");
+    git("config", "user.name", "Klodi");
+    git("config", "user.email", "klodi@users.noreply.github.com");
     git("add", "-A");
     const staged = git("diff", "--cached", "--name-only");
-    if (staged) git("commit", "-m", "Claude Cloud: " + short(job.prompt, 60), "-m", job.prompt.slice(0, 2000));
+    if (staged) git("commit", "-m", "Klodi: " + short(job.prompt, 60), "-m", job.prompt.slice(0, 2000));
     const base = job.branch;
     const ahead = Number(git("rev-list", "--count", `origin/${base}..HEAD`) || 0);
     if (ahead > 0) {
@@ -157,12 +157,12 @@ async function finish() {
       const remote = `https://x-access-token:${process.env.GH_TOKEN}@github.com/${repo}.git`;
       const sha = git("rev-parse", "HEAD");
       if (job.mode === "pr") {
-        const branch = "claude/" + RUN.slice(0, 8);
+        const branch = "klodi/" + RUN.slice(0, 8);
         git("push", remote, `HEAD:refs/heads/${branch}`);
         const r = await fetch(`https://api.github.com/repos/${repo}/pulls`, {
           method: "POST",
           headers: { Authorization: "Bearer " + process.env.GH_TOKEN, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
-          body: JSON.stringify({ title: "Claude Cloud: " + short(job.prompt, 60), head: branch, base, body: job.prompt.slice(0, 4000) }),
+          body: JSON.stringify({ title: "Klodi: " + short(job.prompt, 60), head: branch, base, body: job.prompt.slice(0, 4000) }),
         });
         const pr = await r.json();
         out.pr_url = pr.html_url || null;

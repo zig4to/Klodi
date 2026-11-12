@@ -1,6 +1,6 @@
 import { createSign, createHmac, timingSafeEqual } from "node:crypto";
 
-// GitHub App "Claude Cloud" — brez Octokit: JWT (RS256) iz zasebnega ključa,
+// GitHub App "Klodi" — brez Octokit: JWT (RS256) iz zasebnega ključa,
 // nato installation token za klice v imenu namestitve.
 
 const API = "https://api.github.com";
@@ -38,7 +38,7 @@ async function call<T>(token: string, method: string, path: string, body?: unkno
       Authorization: `${scheme} ${token}`,
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "claude-cloud",
+      "User-Agent": "klodi",
       ...(body ? { "Content-Type": "application/json" } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
@@ -125,5 +125,5 @@ export function appInstallUrl(state: string): string {
   return `https://github.com/apps/${env("GITHUB_APP_SLUG")}/installations/new?state=${encodeURIComponent(state)}`;
 }
 
-export const WORKFLOW_PATH = ".github/workflows/claude-cloud.yml";
+export const WORKFLOW_PATH = ".github/workflows/klodi.yml";
 export const SECRET_NAMES = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"] as const;

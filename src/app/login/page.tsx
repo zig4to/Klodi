@@ -113,7 +113,7 @@ export default function LoginPage() {
         className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900 dark:shadow-black/40"
       >
         <h1 className="mb-1 text-lg font-semibold text-gray-900 dark:text-gray-100">
-          Prijava — Claude Cloud
+          Prijava — Klodi
         </h1>
         <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
           Prijava z računom Bitneverse.

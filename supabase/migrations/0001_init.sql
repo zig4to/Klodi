@@ -1,8 +1,8 @@
--- Claude Cloud: Claude Code v GitHub Actions nad repozitoriji uporabnika.
--- Vsak uporabnik vidi samo svoje vrstice (RLS) in mora imeti app_access 'claudecloud'.
+-- Klodi: Claude Code v GitHub Actions nad repozitoriji uporabnika.
+-- Vsak uporabnik vidi samo svoje vrstice (RLS) in mora imeti app_access 'klodi'.
 -- Pisanje gre (razen nastavitev repozitorija) prek strežnika s service role.
 
--- namestitve GitHub App "Claude Cloud" (ena na GitHub račun/organizacijo)
+-- namestitve GitHub App "Klodi" (ena na GitHub račun/organizacijo)
 create table if not exists public.cloud_installations (
   installation_id bigint primary key,
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -80,15 +80,15 @@ alter table public.cloud_runs enable row level security;
 alter table public.cloud_events enable row level security;
 
 create policy cloud_installations_select on public.cloud_installations for select to authenticated
-  using (user_id = auth.uid() and public.has_app_access('claudecloud'));
+  using (user_id = auth.uid() and public.has_app_access('klodi'));
 create policy cloud_repos_select on public.cloud_repos for select to authenticated
-  using (user_id = auth.uid() and public.has_app_access('claudecloud'));
+  using (user_id = auth.uid() and public.has_app_access('klodi'));
 create policy cloud_threads_select on public.cloud_threads for select to authenticated
-  using (user_id = auth.uid() and public.has_app_access('claudecloud'));
+  using (user_id = auth.uid() and public.has_app_access('klodi'));
 create policy cloud_runs_select on public.cloud_runs for select to authenticated
-  using (user_id = auth.uid() and public.has_app_access('claudecloud'));
+  using (user_id = auth.uid() and public.has_app_access('klodi'));
 create policy cloud_events_select on public.cloud_events for select to authenticated
-  using (user_id = auth.uid() and public.has_app_access('claudecloud'));
+  using (user_id = auth.uid() and public.has_app_access('klodi'));
 
 -- token_hash ne sme do brskalnika
 revoke select (token_hash) on public.cloud_runs from authenticated, anon;

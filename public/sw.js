@@ -1,4 +1,4 @@
-/* Claude Cloud — service worker.
+/* Klodi — service worker.
    Potreben, da je aplikacijo mogoče namestiti kot PWA (Android Chrome zahteva
    registriran SW s "fetch" poslušalcem), poskrbi pa tudi za osnovno delovanje
    brez povezave.
@@ -9,7 +9,7 @@
    Ob spremembi te datoteke povečaj VERZIJA. */
 
 const VERZIJA = "v1";
-const CACHE = "claudecloud-" + VERZIJA;
+const CACHE = "klodi-" + VERZIJA;
 
 self.addEventListener("install", () => {
   self.skipWaiting();

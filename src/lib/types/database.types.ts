@@ -1,4 +1,4 @@
-// Ročno napisani tipi za tabele Claude Cloud (predpona `cloud_`).
+// Ročno napisani tipi za tabele Klodi (predpona `cloud_`).
 // Ustrezajo supabase/migrations/. Ob vsaki novi migraciji jih posodobi.
 
 type Table<Row, Required extends keyof Row> = {

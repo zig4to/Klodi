@@ -16,7 +16,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <header className="flex min-h-12 items-center justify-between gap-2 border-b border-gray-200 bg-white px-3 dark:border-gray-800 dark:bg-gray-900">
         <Link href="/" className="flex items-center gap-2 p-1 font-semibold">
           <Logo className="h-6 w-6" />
-          Claude Cloud
+          Klodi
         </Link>
         <Link href="/nastavitve" aria-label="Nastavitve" className={`p-2 ${HOVER}`}>
           <IconSettings className="h-5 w-5" />

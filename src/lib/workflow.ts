@@ -1,23 +1,23 @@
-// Workflow, ki ga Claude Cloud zapiše v repozitorij uporabnika (.github/workflows/claude-cloud.yml).
+// Workflow, ki ga Klodi zapiše v repozitorij uporabnika (.github/workflows/klodi.yml).
 // Vhodi so samo id teka, enkratni žeton in naslov API-ja; prompt in pravila runner vzame z API-ja,
 // zato ne pristanejo v dnevniku Actions. Vrednosti gredo v skripte prek env (ne ${{ }} v run:).
 
 export const WORKFLOW_VERSION = 1;
 
 export function workflowYaml(apiBase: string): string {
-  return `# Claude Cloud v${WORKFLOW_VERSION} — ustvarila aplikacija Claude Cloud (${apiBase}).
+  return `# Klodi v${WORKFLOW_VERSION} — ustvarila aplikacija Klodi (${apiBase}).
 # Claude Code teče s tvojim secretom CLAUDE_CODE_OAUTH_TOKEN (claude setup-token) ali ANTHROPIC_API_KEY.
-name: Claude Cloud
-run-name: Claude Cloud \${{ inputs.run_id }}
+name: Klodi
+run-name: Klodi \${{ inputs.run_id }}
 on:
   workflow_dispatch:
     inputs:
-      run_id: { description: "Claude Cloud run", required: true }
-      thread_id: { description: "Claude Cloud pogovor", required: true }
+      run_id: { description: "Klodi run", required: true }
+      thread_id: { description: "Klodi pogovor", required: true }
       token: { description: "enkratni žeton", required: true }
-      api: { description: "Claude Cloud API", required: true, default: "${apiBase}" }
+      api: { description: "Klodi API", required: true, default: "${apiBase}" }
 concurrency:
-  group: claude-cloud-\${{ inputs.thread_id }}
+  group: klodi-\${{ inputs.thread_id }}
   cancel-in-progress: false
 permissions:
   contents: write
@@ -45,8 +45,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.claude/projects
-          key: claude-cloud-\${{ inputs.thread_id }}-\${{ inputs.run_id }}
-          restore-keys: claude-cloud-\${{ inputs.thread_id }}-
+          key: klodi-\${{ inputs.thread_id }}-\${{ inputs.run_id }}
+          restore-keys: klodi-\${{ inputs.thread_id }}-
       - name: Namesti Claude Code
         run: npm install -g @anthropic-ai/claude-code
       - name: Prenesi runner

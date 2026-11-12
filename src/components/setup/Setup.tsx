@@ -108,7 +108,7 @@ export default function Setup() {
           <div className="min-w-0 flex-1">
             <h2 className="font-semibold">Poveži GitHub</h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Namesti aplikacijo GitHub <b>Claude Cloud</b> na repozitorije, nad katerimi naj dela Claude. Claude teče v GitHub
+              Namesti aplikacijo GitHub <b>Klodi</b> na repozitorije, nad katerimi naj dela Claude. Claude teče v GitHub
               Actions tvojega repozitorija (tvoje minute).
             </p>
             {installations === null ? (
@@ -137,7 +137,7 @@ export default function Setup() {
             <h2 className="font-semibold">Poveži Claude</h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               Claude Code uporablja <b>tvojo</b> naročnino ali API ključ. Žeton dodaš <b>sam</b> kot secret v GitHub repozitorij —
-              Claude Cloud ga nikoli ne vidi (tako zahtevajo pogoji Anthropic).
+              Klodi ga nikoli ne vidi (tako zahtevajo pogoji Anthropic).
             </p>
             <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm">
               <li>
@@ -164,7 +164,7 @@ export default function Setup() {
           <div className="min-w-0 flex-1">
             <h2 className="font-semibold">Repozitoriji</h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Omogoči repozitorij: Claude Cloud vanj zapiše <code>.github/workflows/claude-cloud.yml</code>.
+              Omogoči repozitorij: Klodi vanj zapiše <code>.github/workflows/klodi.yml</code>.
             </p>
 
             <div className="mt-3 space-y-3">
@@ -176,7 +176,7 @@ export default function Setup() {
                       <span className="min-w-0 flex-1 truncate font-mono text-sm font-medium">{r.full_name}</span>
                       <button
                         type="button"
-                        title="Odstrani iz Claude Cloud"
+                        title="Odstrani iz Klodi"
                         disabled={!!busy}
                         onClick={() => act("del" + r.id, () => api("/api/repos", "DELETE", { repo_id: r.id }))}
                         className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-red-500 dark:hover:bg-gray-800"

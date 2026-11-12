@@ -3,7 +3,7 @@ import { gh, GitHubError, SECRET_NAMES, WORKFLOW_PATH } from "@/lib/github";
 import { workflowYaml } from "@/lib/workflow";
 import type { CloudRepo } from "@/lib/types/database.types";
 
-/** Zapiše (ali posodobi) .github/workflows/claude-cloud.yml v privzeto vejo repozitorija. */
+/** Zapiše (ali posodobi) .github/workflows/klodi.yml v privzeto vejo repozitorija. */
 export async function installWorkflow(repo: CloudRepo, apiBase: string): Promise<void> {
   const api = await gh(repo.installation_id);
   const content = workflowYaml(apiBase);
@@ -20,7 +20,7 @@ export async function installWorkflow(repo: CloudRepo, apiBase: string): Promise
     if (!(e instanceof GitHubError && e.status === 404)) throw e;
   }
   await api("PUT", `/repos/${repo.full_name}/contents/${WORKFLOW_PATH}`, {
-    message: sha ? "Claude Cloud: posodobi workflow" : "Claude Cloud: dodaj workflow",
+    message: sha ? "Klodi: posodobi workflow" : "Klodi: dodaj workflow",
     content: Buffer.from(content, "utf8").toString("base64"),
     branch: repo.default_branch,
     ...(sha ? { sha } : {}),

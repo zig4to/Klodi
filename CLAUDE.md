@@ -2,9 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Kaj je Claude Cloud
+## Kaj je Klodi
 
-Claude Code v oblaku nad GitHub repozitoriji uporabnikov Bitneverse — deluje
+**Klodi** = Claude Code v oblaku nad GitHub repozitoriji uporabnikov Bitneverse — deluje
 brez prižganega računalnika. Videz in funkcije so iz **Live Claude**
 (`zaganjalnik/claude.html` + `claude.js`): predogled + pogovor, ročaj,
 Načrt / Izvedi načrt, Samodejno, Dovoli/Zavrni, Nov pogovor, Ustavi. Razlika:
@@ -51,7 +51,7 @@ vpis tokena.
    namestitev res pripada temu GitHub uporabniku → `cloud_installations`.
 2. **Omogoči repo** (`POST /api/repos`): vrstica `cloud_repos` (barve/ikona iz
    `src/lib/suite-apps.json` = zaganjalnik/apps.json po GitHub imenu), App
-   zapiše `.github/workflows/claude-cloud.yml` (`src/lib/workflow.ts`) v
+   zapiše `.github/workflows/klodi.yml` (`src/lib/workflow.ts`) v
    privzeto vejo, preveri secret.
 3. **Prompt** (`/api/run`, `/api/execute`, `/api/allow`): `startRun` naredi
    `cloud_runs` (enkraten žeton, v bazi samo sha256) in `workflow_dispatch`
@@ -74,7 +74,7 @@ vpis tokena.
 - Bridge iz okolja Clauda odstrani `CC_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`,
   `ACTIONS_*` žetone.
 - Vse `/api/*` (razen runner/webhook) gredo skozi `requireUser()`:
-  prijava + `has_app_access('claudecloud')` (admini huba vedno). Vsako
+  prijava + `has_app_access('klodi')` (admini huba vedno). Vsako
   dejanje preveri lastnika (`ownRepo`). Service role samo v `src/lib/supabase/admin.ts`.
 - RLS: samo `select` lastnih vrstic + `has_app_access`; pisanje samo strežnik.
   `cloud_runs.token_hash` ni berljiv (stolpčni grant).
@@ -88,7 +88,7 @@ vpis tokena.
 `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`,
 `GITHUB_APP_CLIENT_SECRET`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_PRIVATE_KEY`.
 
-GitHub App „Claude Cloud“ (račun zig4to, javna, da jo lahko namestijo drugi):
+GitHub App „Klodi“ (račun zig4to, javna, da jo lahko namestijo drugi):
 - Setup URL: `$APP_URL/api/github/callback`, ☑ *Request user authorization
   (OAuth) during installation*, ☑ *Redirect on update*.
 - Webhook URL: `$APP_URL/api/github/webhook` + secret. Dogodki: *Workflow run*
@@ -102,7 +102,7 @@ GitHub App „Claude Cloud“ (račun zig4to, javna, da jo lahko namestijo drugi
 
 | Migracija | Vsebina | Stanje |
 |---|---|---|
-| `0001_init` | `cloud_installations`, `cloud_repos`, `cloud_threads`, `cloud_runs`, `cloud_events`, RLS, Realtime | izvedena 2026-11-12 (`cloud_init` + `cloud_runs_hide_token`) |
+| `0001_init` | `cloud_installations`, `cloud_repos`, `cloud_threads`, `cloud_runs`, `cloud_events`, RLS, Realtime | izvedena 2026-11-12 (`cloud_init` + `cloud_runs_hide_token` + `cloud_access_klodi`) |
 
 `src/lib/types/database.types.ts` je ročno napisan — ob novi migraciji ga posodobi.
 

@@ -6,7 +6,7 @@ import { admin } from "@/lib/supabase/admin";
 import { gh, GitHubError, WORKFLOW_PATH } from "@/lib/github";
 import type { CloudRepo, CloudRun, CloudThread } from "@/lib/types/database.types";
 
-export const APP_ID = "claudecloud";
+export const APP_ID = "klodi";
 
 export class HttpError extends Error {
   constructor(public status: number, message: string) {
@@ -28,13 +28,13 @@ export function route<A extends unknown[]>(fn: (...a: A) => Promise<unknown>) {
   };
 }
 
-/** Prijavljen uporabnik z dostopom do Claude Cloud (app_access v hubu). */
+/** Prijavljen uporabnik z dostopom do Klodi (app_access v hubu). */
 export async function requireUser(): Promise<AuthUser> {
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) throw new HttpError(401, "Nisi prijavljen.");
   const { data } = await supabase.rpc("has_app_access", { p_app: APP_ID });
-  if (!data) throw new HttpError(403, "Nimaš dostopa do Claude Cloud.");
+  if (!data) throw new HttpError(403, "Nimaš dostopa do Klodi.");
   return user;
 }
 
