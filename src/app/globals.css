@@ -38,7 +38,7 @@ body {
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
 
-/* ===== Samodejna prijava iz huba (TomsStudios) ===== */
+/* ===== Samodejna prijava iz huba (Bitneverse) ===== */
 /* Nalagalnik je privzeto skrit. Med izmenjavo SSO žetonov ga pokaže (in skrije
    obrazec) atribut `data-sso="pending"` na <html>, ki ga postavi sinhroni
    skript v <head> še pred izrisom (src/lib/sso.ts); ob neuspehu ga useEffect

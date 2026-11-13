@@ -4,7 +4,7 @@ import NoAccess from "@/components/NoAccess";
 import { IconPlus } from "@/components/ui/icons";
 import { hasAccess } from "@/lib/cloud";
 import { createClient } from "@/lib/supabase/server";
-import { repoTitle } from "@/lib/suite";
+import { repoTitle, iconSvg, repoStyle } from "@/lib/suite";
 
 export const dynamic = "force-dynamic";
 
@@ -45,22 +45,13 @@ export default async function Home() {
                 key={r.id}
                 href={`/r/${r.id}`}
                 className="group flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-3.5 transition hover:-translate-y-0.5 hover:shadow-md dark:border-gray-800 dark:bg-gray-900"
-                style={{ ["--a" as string]: r.accent || "#0ea5e9", ["--b" as string]: r.accent2 || "#6366f1" }}
+                style={{ ["--a" as string]: repoStyle(r).accent, ["--b" as string]: repoStyle(r).accent2 }}
               >
                 <span
                   className="grid h-10 w-10 place-items-center rounded-xl text-white"
                   style={{ background: "linear-gradient(135deg, var(--a), var(--b))" }}
                 >
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-5 w-5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    dangerouslySetInnerHTML={{ __html: r.icon || "" }}
-                  />
+                  <span className="h-5 w-5 [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: iconSvg(repoStyle(r).icon) }} />
                 </span>
                 <span className="min-w-0">
                   <span className="block truncate font-semibold">{repoTitle(r.full_name)}</span>

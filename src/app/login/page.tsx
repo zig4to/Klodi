@@ -14,7 +14,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [state, formAction, pending] = useActionState(loginAction, initialState);
 
-  // Prijava v ozadju iz huba (TomsStudios). Povezava lahko nosi fragment
+  // Prijava v ozadju iz huba (Bitneverse). Povezava lahko nosi fragment
   // `#sb_at=<access_token>&sb_rt=<refresh_token>`. Middleware neprijavljene
   // obiskovalce preusmeri sem, fragment pa brskalnik prenese s sabo. Žetona
   // zamenjamo za sejo; ob uspehu gremo na `/`, ob neuspehu skrijemo nalagalnik

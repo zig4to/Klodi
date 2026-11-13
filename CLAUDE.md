@@ -13,7 +13,7 @@ njegova naročnina ali API ključ), dogodki pridejo prek Supabase Realtime,
 spremembe gredo po koncu teka direktno v privzeto vejo ali v PR (nastavitev
 repozitorija). Gumba Push ni.
 
-Ogrodje je kopija **Kviza** (prijava, SSO iz huba TomsStudios, tema, PWA).
+Ogrodje je kopija **Kviza** (prijava, SSO iz huba Bitneverse, tema, PWA).
 Isti Supabase projekt **ProjektiBaze** (`abjnxhfxjolwwxlckkje`), tabele
 `cloud_*`. Stack: Next.js 16 · React 19 · TypeScript · Tailwind v4 ·
 `@supabase/ssr`. Barva `#0ea5e9` → `#6366f1`, znak: bel oblak (Lucide cloud,
@@ -130,9 +130,9 @@ doda sam (spletno ali `gh secret set … --body`), nikoli prek Klodija/pogovora.
 
 `cloud_repos.deploy_url` (polje „Predogled“) kaže **objavljeno** aplikacijo:
 sprememba je vidna šele po deployu (Vercel/Pages), ne v živo. Za zig4to
-repozitorije je naslov iz `TomsStudios/apps-registry.js`.
+repozitorije je naslov iz Bitneverse (`apps-registry.js` v repozitoriju `TomsStudios`).
 
-Plošča Bitneverse (`TomsStudios/apps-registry.js`): kartica `id: "klodi"`,
+Plošča Bitneverse (`apps-registry.js` v repozitoriju `TomsStudios`): kartica `id: "klodi"`,
 vidna uporabnikom z `app_access` `klodi` (dodeli v `admin.html`).
 
 Živa seja (tok 7) kaže dev strežnik prek tunela namesto `deploy_url`; stane

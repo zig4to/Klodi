@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 /**
- * Prijava v ozadju iz huba (TomsStudios).
+ * Prijava v ozadju iz huba (Bitneverse).
  *
  * Povezava do te aplikacije lahko nosi fragment
  * `#sb_at=<access_token>&sb_rt=<refresh_token>`. Ker middleware neprijavljene

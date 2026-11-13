@@ -1,4 +1,4 @@
-// Prijava iz huba (TomsStudios): povezava do aplikacije lahko nosi fragment
+// Prijava iz huba (Bitneverse): povezava do aplikacije lahko nosi fragment
 // `#sb_at=<access_token>&sb_rt=<refresh_token>`.
 //
 // Inline skripta, ki teče sinhrono med razčlenjevanjem HTML (v <head>, pred

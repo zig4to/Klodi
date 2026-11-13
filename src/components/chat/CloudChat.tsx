@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { ChatItem, CloudEvent, CloudRepo, CloudRun, CloudSession, CloudThread, RunResult } from "@/lib/types/database.types";
 import { esc, md } from "./md";
-import { inSuite } from "@/lib/suite";
+import { accentFg, iconSvg, inSuite, repoStyle } from "@/lib/suite";
 
 // Pogovor s Claudom za en repozitorij — isti videz in funkcije kot Live Claude
 // (zaganjalnik/claude.html), le da Claude teče v GitHub Actions, dogodki pa
@@ -32,6 +32,22 @@ ICON.Glob = ICON.Grep;
 
 const ICO_UP = '<path d="m18 15-6-6-6 6"/>';
 const ICO_DOWN = '<path d="m6 9 6 6 6-6"/>';
+// Lucide rotate-ccw-square
+const ICO_ROTATE = '<path d="M20 9V7a2 2 0 0 0-2-2h-6"/><path d="m15 2-3 3 3 3"/><path d="M20 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h1"/>';
+
+// Dimenzije predogleda kot v Chrome DevTools (CSS piksli, pokončno)
+const DEVICES: { id: string; name: string; w: number; h: number }[] = [
+  { id: "se", name: "iPhone SE", w: 375, h: 667 },
+  { id: "i12", name: "iPhone 12 Pro", w: 390, h: 844 },
+  { id: "i14", name: "iPhone 14 Pro Max", w: 430, h: 932 },
+  { id: "px7", name: "Pixel 7", w: 412, h: 915 },
+  { id: "s8", name: "Samsung Galaxy S8+", w: 360, h: 740 },
+  { id: "ipm", name: "iPad Mini", w: 768, h: 1024 },
+  { id: "ipa", name: "iPad Air", w: 820, h: 1180 },
+  { id: "ipp", name: "iPad Pro", w: 1024, h: 1366 },
+  { id: "lap", name: "Prenosnik", w: 1366, h: 768 },
+  { id: "hd", name: "Namizni (1920×1080)", w: 1920, h: 1080 },
+];
 // Lucide radio — živa seja
 const ICO_LIVE = '<path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/>';
 const SESSION_COLS = "id,user_id,repo_id,thread_id,status,preview_url,preview_hot,gh_run_id,gh_run_url,commit_sha,commit_url,pr_url,error,last_activity_at,created_at,ended_at";
@@ -85,13 +101,18 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
   const gripRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [deviceId, setDeviceId] = useState("");
+  const [rotated, setRotated] = useState(false);
+  const [stage, setStage] = useState({ w: 0, h: 0 });
   const taRef = useRef<HTMLTextAreaElement>(null);
   const nearBottom = useRef(true);
   const threadIds = useRef<Set<string>>(new Set());
   const runIds = useRef<Set<string>>(new Set());
 
-  const accent = repo.accent || "#0ea5e9";
-  const accent2 = repo.accent2 || "#6366f1";
+  const style = repoStyle(repo);
+  const accent = style.accent;
+  const accent2 = style.accent2;
   const K = "cc-" + repo.id;
 
   // ---------- podatki ----------
@@ -229,6 +250,8 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
       setPlanState(store(K + "-plan") === "1");
       setPrompt(store(K + "-draft") || "");
       setNavHidden(store("cc-nav-hidden") === "1");
+      setDeviceId(store("cc-pv-device") || "");
+      setRotated(store("cc-pv-rotated") === "1");
     }, 0);
     return () => clearTimeout(t);
   }, [K]);
@@ -242,6 +265,27 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
   function toggleHide() {
     store("cc-nav-hidden", navHidden ? "0" : "1");
     setNavHidden(!navHidden);
+  }
+
+  // ---------- dimenzije predogleda (kot Chrome DevTools) ----------
+  const device = DEVICES.find((d) => d.id === deviceId) || null;
+  const devW = device ? (rotated ? device.h : device.w) : 0;
+  const devH = device ? (rotated ? device.w : device.h) : 0;
+  const scale = device && stage.w && stage.h ? Math.min(1, (stage.w - 16) / devW, (stage.h - 16) / devH) : 1;
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setStage({ w: e.contentRect.width, h: e.contentRect.height }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  function pickDevice(id: string) {
+    store("cc-pv-device", id);
+    setDeviceId(id);
+  }
+  function rotate() {
+    store("cc-pv-rotated", rotated ? "0" : "1");
+    setRotated(!rotated);
   }
 
   // ---------- ročaj (iz claude.html) ----------
@@ -571,14 +615,14 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
     <div
       ref={rootRef}
       className={`cc${navHidden ? " nav-hidden" : ""}`}
-      style={{ ["--accent" as string]: accent, ["--accent2" as string]: accent2 }}
+      style={{ ["--accent" as string]: accent, ["--accent2" as string]: accent2, ["--accent-fg" as string]: accentFg(accent) }}
     >
       <header>
         <button type="button" className="ico" title="Nazaj" aria-label="Nazaj" onClick={() => router.push("/")}>
           <Svg p='<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>' />
         </button>
         <button type="button" className="app-icon" title="Osveži stran" aria-label="Osveži stran" onClick={() => location.reload()}>
-          <svg viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: repo.icon || "" }} />
+          <span className="app-ico" dangerouslySetInnerHTML={{ __html: iconSvg(style.icon) }} />
         </button>
         <div className="title">
           <b>{title}</b>
@@ -632,6 +676,30 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
             {liveUrl ? "živo · " : liveStatus === "starting" ? "zaganjam živo sejo · " : ""}
             {pvUrl.replace(/^https?:\/\//, "") || "brez predogleda"}
           </span>
+          {device && (
+            <span className="pv-size" title="Velikost okvirja · povečava">
+              {devW}×{devH}{scale < 1 ? ` · ${Math.round(scale * 100)} %` : ""}
+            </span>
+          )}
+          <select
+            className="pv-dev"
+            value={deviceId}
+            title="Dimenzije predogleda"
+            aria-label="Dimenzije predogleda"
+            onChange={(e) => pickDevice(e.target.value)}
+          >
+            <option value="">Prilagodljivo</option>
+            {DEVICES.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name} ({d.w}×{d.h})
+              </option>
+            ))}
+          </select>
+          {device && (
+            <button type="button" className="ico" title="Zasukaj" aria-label="Zasukaj" aria-pressed={rotated} onClick={rotate}>
+              <Svg p={ICO_ROTATE} />
+            </button>
+          )}
           <button type="button" className="ico" title="Osveži" aria-label="Osveži" onClick={() => setFrameKey((k) => k + 1)}>
             <Svg p='<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>' />
           </button>
@@ -652,9 +720,18 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
             <Svg p={navHidden ? ICO_DOWN : ICO_UP} />
           </button>
         </div>
-        {pvUrl && ssoReady && (
-          <iframe key={frameKey} ref={frameRef} title="Predogled" src={pvUrl + (suiteApp ? sso?.hash ?? "" : "")} allow="clipboard-write" />
-        )}
+        <div ref={stageRef} className={`pv-stage${device ? " dev" : ""}`}>
+          {pvUrl && ssoReady && (
+            <iframe
+              key={frameKey}
+              ref={frameRef}
+              title="Predogled"
+              src={pvUrl + (suiteApp ? sso?.hash ?? "" : "")}
+              allow="clipboard-write"
+              style={device ? { width: devW, height: devH, transform: `translate(-50%, -50%) scale(${scale})` } : undefined}
+            />
+          )}
+        </div>
         <div className="pv-empty pv-off">
           <span>
             {liveStatus === "starting"

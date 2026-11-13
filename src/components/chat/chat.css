@@ -72,12 +72,14 @@
   /* logotip = osveži celo stran */
   .app-icon:hover { background: linear-gradient(135deg, var(--accent), var(--accent2)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
   .app-icon:active { transform: scale(.9); }
-  .app-icon svg { width: 18px; height: 18px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  /* ikona iz zbirke je cel <svg> s svojimi fill/stroke (currentColor = bela) */
+  .app-ico { display: grid; width: 18px; height: 18px; }
+  .app-ico svg { width: 100%; height: 100%; }
   .title { min-width: 0; flex: 1; }
   .title b { display: block; font-size: 15px; letter-spacing: -.01em; }
   .title span { display: flex; align-items: center; gap: 4px; font: 11.5px var(--mono); color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .title span svg { width: 12px; height: 12px; }
-  #auto[aria-pressed="true"], #live[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  #auto[aria-pressed="true"], #live[aria-pressed="true"] { border-color: var(--accent-fg, var(--accent)); color: var(--accent-fg, var(--accent)); background: color-mix(in srgb, var(--accent-fg, var(--accent)) 14%, transparent); }
   #push.ready { border-color: transparent; background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
 
   /* ---------- predogled ---------- */
@@ -105,11 +107,25 @@
   .dot.starting { background: var(--wait); }
   .dot.live { animation: cc-live 1.6s ease-in-out infinite; }
   iframe { flex: 1; width: 100%; min-height: 0; border: 0; background: #fff; }
+  /* dimenzije (kot Chrome DevTools): okvir fiksne velikosti, pomanjšan na prostor */
+  .pv-stage { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+  .pv-stage.dev { background: color-mix(in srgb, var(--soft) 12%, var(--bg)); }
+  .pv-stage.dev iframe {
+    flex: none; position: absolute; left: 50%; top: 50%; transform-origin: center;
+    border-radius: 6px; box-shadow: 0 0 0 1px var(--border), 0 8px 28px rgba(0, 0, 0, .18);
+  }
+  .pv-dev {
+    max-width: 150px; min-height: 30px; padding: 0 6px; flex-shrink: 1; min-width: 0;
+    font-size: 12px; font-family: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px; cursor: pointer;
+  }
+  .pv-size { font: 11px var(--mono); color: var(--soft); white-space: nowrap; }
+  @media (max-width: 899px) { .pv-dev { max-width: 112px; } .pv-size { display: none; } }
   .pv-empty {
     flex: 1; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
     padding: 20px; text-align: center; color: var(--soft); font-size: 14px;
   }
-  #pv.off iframe, #pv.blocked iframe { display: none; }
+  #pv.off iframe, #pv.blocked iframe, #pv.off .pv-stage { display: none; }
   #pv.off .pv-off, #pv.blocked .pv-blocked { display: flex; }
   .go { border-color: transparent; background: #16a34a; color: #fff; }
   /* drsnik med predogledom in pogovorom: črta čez celo širino + ročaj v barvah aplikacije */
