@@ -69,13 +69,16 @@ vpis tokena.
    `live`, timeout 360 min): `cloud_sessions` (žeton seje; teki v seji imajo
    isti `token_hash` + `cloud_runs.session_id`). Runner `CC_LIVE=1`: `npm ci` +
    `npm run dev` (port iz izpisa; brez skripte `dev` statični strežnik :8080) →
-   `cloudflared` quick tunnel (`--http-host-header localhost:<port>`) →
+   proxy :8787 (piškotki → `SameSite=None; Secure; Partitioned` v Set-Cookie in prek vstavljene
+   skripte za `document.cookie`, ker se Lax piškotki iz iframa ne pošiljajo → ob vsakem kliku
+   bi bila spet prijava; Host `localhost:<port>`, Location brez localhost, WebSocket) →
+   `cloudflared` quick tunnel →
    `/api/runner/session` op `preview` → zanka op `next` (vsake 3 s) → za vsak
    prompt nov `claude -p --resume` + `--append-system-prompt` o dev strežniku.
    Prompti v seji ne naredijo dispatcha (`startRun` jih samo postavi v vrsto).
    Konec: Končaj (status `ending`), 20 min brez dela ali 340 min → korak
    „Objavi“ commita vse naenkrat → op `finish`. Ustavi v seji ustavi le
-   trenutni prompt. Aplikacijam iz zbirke runner poda javna
+   trenutni prompt. Aplikacijam iz zbirke `CloudChat` poda prijavo kot hub (`#sb_at=…&sb_rt=…` v src okvirja). Runner poda javna
    `NEXT_PUBLIC_SUPABASE_URL/ANON_KEY`. Next aplikacije rabijo
    `**.trycloudflare.com` v `allowedDevOrigins`, sicer HMR/JS ne deluje.
 

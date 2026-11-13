@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { ChatItem, CloudEvent, CloudRepo, CloudRun, CloudSession, CloudThread, RunResult } from "@/lib/types/database.types";
 import { esc, md } from "./md";
+import { inSuite } from "@/lib/suite";
 
 // Pogovor s Claudom za en repozitorij — isti videz in funkcije kot Live Claude
 // (zaganjalnik/claude.html), le da Claude teče v GitHub Actions, dogodki pa
@@ -77,6 +78,7 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [frameKey, setFrameKey] = useState(0);
   const [live, setLive] = useState<CloudSession | null>(null);
+  const [sso, setSso] = useState<{ key: number; hash: string } | null>(null);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const chatRef = useRef<HTMLElement>(null);
@@ -181,6 +183,27 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
     const t = setTimeout(() => setFrameKey((k) => k + 1), 500);
     return () => clearTimeout(t);
   }, [liveCold, lastLiveDone]);
+
+  // Predogled je iframe na drugi strani (vercel.app/github.io): aplikaciji iz
+  // zbirke (isti Supabase) podamo prijavo kot hub — #sb_at=…&sb_rt=… —, da se
+  // v okvirju prijavi sama. Ob vsakem novem nalaganju okvirja (frameKey) sveža.
+  const suiteApp = inSuite(repo.full_name);
+  useEffect(() => {
+    if (!suiteApp) return;
+    let off = false;
+    supabase.auth.getSession().then(({ data }) => {
+      if (off) return;
+      const s = data.session;
+      setSso({
+        key: frameKey,
+        hash: s ? `#sb_at=${encodeURIComponent(s.access_token)}&sb_rt=${encodeURIComponent(s.refresh_token)}` : "",
+      });
+    });
+    return () => {
+      off = true;
+    };
+  }, [supabase, suiteApp, frameKey]);
+  const ssoReady = !suiteApp || sso?.key === frameKey;
 
   // po objavi v main: predogled osveži, ko deploy verjetno konča
   const lastCommit = lastRun?.commit_sha;
@@ -648,8 +671,8 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
             <Svg p={hideIsDown ? ICO_DOWN : ICO_UP} />
           </button>
         </div>
-        {pvUrl && !(collapsed && !phone) && (
-          <iframe key={frameKey} ref={frameRef} title="Predogled" src={pvUrl} allow="clipboard-write" />
+        {pvUrl && ssoReady && !(collapsed && !phone) && (
+          <iframe key={frameKey} ref={frameRef} title="Predogled" src={pvUrl + (suiteApp ? sso?.hash ?? "" : "")} allow="clipboard-write" />
         )}
         <div className="pv-empty pv-off">
           <span>

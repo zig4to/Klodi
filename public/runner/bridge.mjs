@@ -243,6 +243,80 @@ async function startDev(log, extraEnv) {
   return { port: 8080, https: false, hot: false };
 }
 
+// Predogled je iframe na tuji strani (Klodi): piškotki SameSite=Lax (privzeto
+// v @supabase/ssr) se iz okvirja ne pošiljajo, zato bi middleware ob vsakem
+// kliku izgubil prijavo. Proxy jih prepiše v `SameSite=None; Secure;
+// Partitioned` (CHIPS — deluje tudi ob blokiranih piškotkih tretjih strani):
+// Set-Cookie iz strežnika in document.cookie (skripta, vstavljena v HTML).
+const COOKIE_ATTRS = "; SameSite=None; Secure; Partitioned";
+const fixCookie = (c) => String(c).replace(/;\s*(samesite|secure|partitioned)(=[^;]*)?/gi, "") + COOKIE_ATTRS;
+const COOKIE_JS = `<script>(function(){try{var d=Object.getOwnPropertyDescriptor(Document.prototype,"cookie");if(!d||!d.set)return;` +
+  `Object.defineProperty(document,"cookie",{configurable:true,get:function(){return d.get.call(document)},` +
+  `set:function(v){d.set.call(document,String(v).replace(/;\\s*(samesite|secure|partitioned)(=[^;]*)?/gi,"")+${JSON.stringify(COOKIE_ATTRS)})}})}catch(e){}})();</script>`;
+
+/** Proxy pred dev strežnikom (port 8787): piškotki za iframe, Location brez localhost, WebSocket (HMR). */
+async function startProxy(log, dev) {
+  const { request: httpReq } = await import("node:http");
+  const { request: httpsReq } = await import("node:https");
+  const { connect: tlsConnect } = await import("node:tls");
+  const { connect: netConnect } = await import("node:net");
+  const request = dev.https ? httpsReq : httpReq;
+  const host = `localhost:${dev.port}`;
+  const localRe = new RegExp(`^https?://(?:localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0):${dev.port}(?=/|$)`, "i");
+  const PORT = 8787;
+
+  const srv = createServer((req, rsp) => {
+    const headers = { ...req.headers, host };
+    delete headers["accept-encoding"]; // HTML moramo brati (skripta)
+    const up = request({ host: "127.0.0.1", port: dev.port, method: req.method, path: req.url, headers, rejectUnauthorized: false, servername: "localhost" }, (r) => {
+      const h = { ...r.headers };
+      if (h["set-cookie"]) h["set-cookie"] = [].concat(h["set-cookie"]).map(fixCookie);
+      if (typeof h.location === "string") h.location = h.location.replace(localRe, "") || "/";
+      const html = /^text\/html/i.test(String(h["content-type"] || "")) && !h["content-encoding"];
+      if (!html) { rsp.writeHead(r.statusCode || 502, r.statusMessage, h); r.pipe(rsp); return; }
+      delete h["content-length"];
+      rsp.writeHead(r.statusCode || 502, r.statusMessage, h);
+      // skripta takoj za <head> (pred skriptami aplikacije); HTML ostane pretočen
+      let done = false, buf = "";
+      r.setEncoding("utf8");
+      r.on("data", (d) => {
+        if (rsp.writableEnded) return;
+        if (done) return rsp.write(d);
+        buf += d;
+        const m = /<head[^>]*>/i.exec(buf);
+        if (m) { done = true; rsp.write(buf.slice(0, m.index + m[0].length) + COOKIE_JS + buf.slice(m.index + m[0].length)); buf = ""; }
+        else if (buf.length > 64_000) { done = true; rsp.write(COOKIE_JS + buf); buf = ""; }
+      });
+      r.on("end", () => { if (rsp.writableEnded) return; if (buf) rsp.write(done ? buf : COOKIE_JS + buf); rsp.end(); });
+      r.on("error", () => rsp.destroy());
+    });
+    up.on("error", (e) => { if (!rsp.headersSent) rsp.writeHead(502, { "Content-Type": "text/plain; charset=utf-8" }); rsp.end("Dev strežnik ne odgovarja: " + e.message); });
+    req.pipe(up);
+  });
+
+  // WebSocket (HMR): surovo prepletanje, glava z zamenjanim Host
+  srv.on("upgrade", (req, sock, head) => {
+    const s = dev.https ? tlsConnect({ host: "127.0.0.1", port: dev.port, rejectUnauthorized: false, servername: "localhost" }) : netConnect(dev.port, "127.0.0.1");
+    s.on("error", () => sock.destroy());
+    sock.on("error", () => s.destroy());
+    s.once(dev.https ? "secureConnect" : "connect", () => {
+      const lines = [`${req.method} ${req.url} HTTP/${req.httpVersion}`];
+      for (let i = 0; i < req.rawHeaders.length; i += 2) {
+        const k = req.rawHeaders[i];
+        lines.push(`${k}: ${k.toLowerCase() === "host" ? host : req.rawHeaders[i + 1]}`);
+      }
+      s.write(lines.join("\r\n") + "\r\n\r\n");
+      if (head?.length) s.write(head);
+      s.pipe(sock);
+      sock.pipe(s);
+    });
+  });
+
+  await new Promise((res) => srv.listen(PORT, "127.0.0.1", res));
+  log.write(`\nproxy za predogled: http://127.0.0.1:${PORT} → ${dev.https ? "https" : "http"}://${host}\n`);
+  return PORT;
+}
+
 /** Cloudflare quick tunnel (brez računa): vrne https://….trycloudflare.com */
 async function startTunnel(log, dev) {
   const bin = join(TMP, "cloudflared");
@@ -252,9 +326,16 @@ async function startTunnel(log, dev) {
     writeFileSync(bin, Buffer.from(await r.arrayBuffer()));
     chmodSync(bin, 0o755);
   }
-  const target = `${dev.https ? "https" : "http"}://localhost:${dev.port}`;
-  const args = ["tunnel", "--no-autoupdate", "--url", target, "--http-host-header", `localhost:${dev.port}`];
-  if (dev.https) args.push("--no-tls-verify");
+  // tunel → proxy (piškotki za iframe) → dev strežnik; ob napaki proxyja neposredno
+  let args;
+  try {
+    const port = await startProxy(log, dev);
+    args = ["tunnel", "--no-autoupdate", "--url", `http://localhost:${port}`];
+  } catch (e) {
+    log.write(`\nproxy ni uspel (${e.message}), tunel neposredno na dev strežnik\n`);
+    args = ["tunnel", "--no-autoupdate", "--url", `${dev.https ? "https" : "http"}://localhost:${dev.port}`, "--http-host-header", `localhost:${dev.port}`];
+    if (dev.https) args.push("--no-tls-verify");
+  }
   const m = await background(log, bin, args, cleanEnv(true), /https:\/\/(?!api\.)[a-z0-9-]+\.trycloudflare\.com/, 90_000);
   return m[0];
 }
