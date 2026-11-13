@@ -255,7 +255,10 @@ async function startDev(log, extraEnv) {
 // Set-Cookie iz strežnika in document.cookie (skripta, vstavljena v HTML).
 const COOKIE_ATTRS = "; SameSite=None; Secure; Partitioned";
 const fixCookie = (c) => String(c).replace(/;\s*(samesite|secure|partitioned)(=[^;]*)?/gi, "") + COOKIE_ATTRS;
-const COOKIE_JS = `<script>(function(){try{var d=Object.getOwnPropertyDescriptor(Document.prototype,"cookie");if(!d||!d.set)return;` +
+// Skripta se po izvedbi odstrani iz DOM: React (hidracija <head>) sicer najde element,
+// ki ga v strežniškem HTML ni, in javi napako hidracije.
+const COOKIE_JS = `<script>(function(){try{var s=document.currentScript;if(s&&s.parentNode)s.parentNode.removeChild(s)}catch(e){}` +
+  `try{var d=Object.getOwnPropertyDescriptor(Document.prototype,"cookie");if(!d||!d.set)return;` +
   `Object.defineProperty(document,"cookie",{configurable:true,get:function(){return d.get.call(document)},` +
   `set:function(v){d.set.call(document,String(v).replace(/;\\s*(samesite|secure|partitioned)(=[^;]*)?/gi,"")+${JSON.stringify(COOKIE_ATTRS)})}})}catch(e){}})();</script>`;
 
