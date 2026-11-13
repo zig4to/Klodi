@@ -308,14 +308,33 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
       const pad = full ? 0 : parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
       return innerHeight - pv.getBoundingClientRect().top - grip.offsetHeight - form.offsetHeight - pad;
     };
-    let drag = false, pvH = 0;
+    let drag = false, pvH = 0, raf = 0, last: PointerEvent | null = null, thaw = 0;
     const frame = () => frameRef.current;
+    // Med vlečenjem okvir (tuja stran) ostane največje velikosti in se le
+    // obreže (.pv-stage overflow: hidden): sicer se ob vsakem premiku na novo
+    // postavi in riše — belo utripanje. Velikost se nastavi enkrat ob koncu.
+    const freeze = (f: HTMLIFrameElement) => {
+      clearTimeout(thaw);
+      // samo telefon (navpični drsnik); naprava ima fiksno velikost že sama
+      if (wide.matches || f.parentElement?.classList.contains("dev")) return;
+      const r = f.getBoundingClientRect();
+      f.style.flex = "none";
+      f.style.width = r.width + "px";
+      f.style.height = Math.max(r.height, innerHeight) + "px";
+    };
+    const unfreeze = (ms: number) => {
+      clearTimeout(thaw);
+      thaw = window.setTimeout(() => {
+        const f = frame();
+        if (f && !f.parentElement?.classList.contains("dev")) { f.style.flex = ""; f.style.width = ""; f.style.height = ""; }
+      }, ms);
+    };
     const down = (e: PointerEvent) => {
       drag = true;
       grip.classList.add("drag");
       grip.setPointerCapture(e.pointerId);
       const f = frame();
-      if (f) f.style.pointerEvents = "none";
+      if (f) { f.style.pointerEvents = "none"; freeze(f); }
       if (!wide.matches) {
         pv.classList.remove("snap");
         pvH = pv.getBoundingClientRect().height;
@@ -325,8 +344,15 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
         }
       }
     };
-    const move = (e: PointerEvent) => {
+    const move = (ev: PointerEvent) => {
       if (!drag) return;
+      last = ev;
+      if (!raf) raf = requestAnimationFrame(apply);
+    };
+    const apply = () => {
+      raf = 0;
+      const e = last;
+      if (!drag || !e) return;
       if (wide.matches) {
         const f = Math.min(4, Math.max(0.6, e.clientX / Math.max(1, innerWidth - e.clientX)));
         store("cc-pvw", f.toFixed(2));
@@ -338,6 +364,7 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
       }
     };
     const end = () => {
+      if (raf) { cancelAnimationFrame(raf); raf = 0; apply(); }
       if (drag && !wide.matches) {
         const max = maxPv();
         pv.classList.add("snap");
@@ -360,12 +387,15 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
       grip.classList.remove("drag");
       const f = frame();
       if (f) f.style.pointerEvents = "";
+      unfreeze(wide.matches ? 0 : 360); // po animaciji „snap“ (.32 s)
     };
     grip.addEventListener("pointerdown", down);
     grip.addEventListener("pointermove", move);
     grip.addEventListener("pointerup", end);
     grip.addEventListener("pointercancel", end);
     return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(thaw);
       wide.removeEventListener("change", applyWide);
       grip.removeEventListener("pointerdown", down);
       grip.removeEventListener("pointermove", move);
