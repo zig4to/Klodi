@@ -32,7 +32,7 @@ export const POST = route(async (req: Request) => {
   if (b.session_id) await db.from("cloud_threads").update({ session_id: b.session_id }).eq("id", run.thread_id);
   await db.from("cloud_runs").update({
     status: b.status === "error" ? "error" : "done",
-    result: b.result ?? null,
+    ...(b.result !== undefined ? { result: b.result } : {}),
     commit_sha: b.commit_sha ?? null,
     commit_url: b.commit_url ?? null,
     pr_url: b.pr_url ?? null,

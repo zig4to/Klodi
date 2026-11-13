@@ -60,12 +60,19 @@ vpis tokena.
    `claude` korak → `/api/runner/start` (prompt, argumenti iz `src/lib/rules.ts`,
    `--resume` iz `cloud_threads.session_id`) → `claude -p stream-json` →
    elementi `{k:…}` (ista oblika kot `claude.js`) v paketih na
-   `/api/runner/events`; `finish` korak → commit + push (main ali veja
-   `claude/<run>` + PR) → `/api/runner/finish`.
+   `/api/runner/events` (na koncu še `result`). **Workflow v3**: job `claude`
+   (samo `contents: read`) na koncu `bridge.mjs pack` → binarni patch glede na
+   `CC_BASE` (= `github.sha`) kot artifact `klodi-patch`; job `objavi`
+   (svež stroj, edini z `GH_TOKEN`) runner prenese na novo, `bridge.mjs publish`:
+   način/vejo/sporočilo z API-ja (`/api/runner/info`, v seji op `info`) →
+   `git apply` → commit → rebase na najnovejšo vejo → push v main ali veja
+   `klodi/<run>` + PR (ob sporu v načinu main samodejno PR) → `/api/runner/finish`.
+   Ukaz `finish` ostaja za stare v2 workflowe. Pred vsakim dispatchem
+   `installWorkflow` workflow posodobi (brez spremembe ni commita).
 5. Seja med teki: `actions/cache` za `~/.claude/projects`, ključ thread.
 6. **Ustavi** (`/api/stop`): cancel teka na GitHubu + status `cancelled`;
    runner ob 410 ubije Clauda. Webhook `workflow_run` je rezerva za status.
-7. **Živa seja** (gumb Živo, `/api/live` op `start`/`end`, workflow v2 z vhodom
+7. **Živa seja** (gumb Živo, `/api/live` op `start`/`end`, workflow z vhodom
    `live`, timeout 360 min): `cloud_sessions` (žeton seje; teki v seji imajo
    isti `token_hash` + `cloud_runs.session_id`). Runner `CC_LIVE=1`: `npm ci` +
    `npm run dev` (port iz izpisa; brez skripte `dev` statični strežnik :8080) →
@@ -76,16 +83,19 @@ vpis tokena.
    `/api/runner/session` op `preview` → zanka op `next` (vsake 3 s) → za vsak
    prompt nov `claude -p --resume` + `--append-system-prompt` o dev strežniku.
    Prompti v seji ne naredijo dispatcha (`startRun` jih samo postavi v vrsto).
-   Konec: Končaj (status `ending`), 20 min brez dela ali 340 min → korak
-   „Objavi“ commita vse naenkrat → op `finish`. Ustavi v seji ustavi le
+   Konec: Končaj (status `ending`), 20 min brez dela ali 340 min → job
+   „objavi“ commita vse naenkrat → op `finish`. Ustavi v seji ustavi le
    trenutni prompt. Aplikacijam iz zbirke `CloudChat` poda prijavo kot hub (`#sb_at=…&sb_rt=…` v src okvirja). Runner poda javna
    `NEXT_PUBLIC_SUPABASE_URL/ANON_KEY`. Next aplikacije rabijo
    `**.trycloudflare.com` v `allowedDevOrigins`, sicer HMR/JS ne deluje.
 
 ## Varnost
 
-- `checkout` s `persist-credentials: false` + `GH_TOKEN` samo v koraku
-  „Objavi“: Claude med delom nima poverilnic za push. `git push` je v
+- `GH_TOKEN` (contents/PR write) ima samo job „objavi“ na **svežem stroju**, ki
+  iz joba `claude` vzame le patch (podatki): Claude lahko na svojem stroju
+  spremeni runner, git hooke/config ali programe na PATH, a to ne doseže koraka z
+  žetonom (v v2 je bila objava na istem stroju — luknja). Job `claude` ima samo
+  `contents: read`. `git push` je v
   `DANGER` (rules.ts) in `NEVER`, gumb Dovoli ga ne more dovoliti.
 - Bridge iz okolja Clauda odstrani `CC_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`,
   `ACTIONS_*` žetone.

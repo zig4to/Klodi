@@ -8,7 +8,7 @@ const IDLE_MIN = 20;
 
 type B = {
   run_id: string; // id seje
-  op: "start" | "preview" | "next" | "finish";
+  op: "start" | "preview" | "next" | "info" | "finish";
   gh_run_id?: string;
   gh_run_url?: string;
   url?: string | null;
@@ -76,6 +76,19 @@ export const POST = route(async (req: Request) => {
       return { end: true, idle: true };
     }
     return { wait: true };
+  }
+
+  // info (workflow v3, job „objavi“): kam in s kakšnim sporočilom objaviti — iz baze
+  if (b.op === "info") {
+    const { data: rs } = await db.from("cloud_runs").select("prompt").eq("session_id", s.id).order("created_at");
+    const prompts = (rs || []).map((r) => r.prompt.replace(/\s+/g, " ").trim());
+    const first = prompts[0] || "spremembe";
+    return {
+      mode: repo!.mode,
+      branch: repo!.default_branch,
+      title: "Klodi (živa seja): " + (first.length > 60 ? first.slice(0, 60) + "…" : first),
+      message: prompts.map((p, i) => `${i + 1}. ${p.length > 400 ? p.slice(0, 400) + "…" : p}`).join("\n").slice(0, 4000) || "Živa seja",
+    };
   }
 
   // finish: objava ob koncu seje

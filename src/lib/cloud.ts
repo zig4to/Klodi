@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthUser, type AuthUser } from "@/lib/supabase/auth";
 import { admin } from "@/lib/supabase/admin";
 import { gh, GitHubError, WORKFLOW_PATH } from "@/lib/github";
+import { installWorkflow } from "@/lib/repos";
 import type { ChatItem, CloudRepo, CloudRun, CloudSession, CloudThread, SessionStatus } from "@/lib/types/database.types";
 
 export const APP_ID = "klodi";
@@ -145,6 +146,8 @@ export async function startRun(req: Request, repo: CloudRepo, prompt: string, pl
     return run;
   }
   try {
+    // workflow vedno najnovejši (v3: objava v ločenem jobu); brez spremembe ni commita
+    await installWorkflow(repo, appBase(req));
     await dispatch(req, repo, { run_id: run.id, thread_id: thread.id, token });
   } catch (e) {
     await db.from("cloud_runs").update({ status: "error", error: (e as Error).message, finished_at: new Date().toISOString() }).eq("id", run.id);

@@ -3,10 +3,12 @@
 //                              pošilja elemente pogovora (ista oblika kot zaganjalnik/claude.js)
 //                              CC_LIVE=1: živa seja — dev strežnik + Cloudflare tunel (predogled),
 //                              prompti iz vrste drug za drugim, dokler uporabnik ne konča ali 20 min nič
-//   node bridge.mjs finish   — commit + push v main ali veja + PR, javi rezultat
+//   node bridge.mjs pack     — (v3, job claude) spremembe kot patch za job „objavi“
+//   node bridge.mjs publish  — (v3, job objavi, svež stroj) patch → commit → push/PR, javi rezultat
+//   node bridge.mjs finish   — (v2) commit + push na istem stroju kot Claude
 // Brez odvisnosti. Okolje: CC_API, CC_RUN, CC_TOKEN (+ GH_TOKEN, GITHUB_REPOSITORY samo pri finish).
 import { spawn, execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, createWriteStream, chmodSync, statSync, createReadStream } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, createWriteStream, chmodSync, statSync, createReadStream, mkdirSync } from "node:fs";
 import { createServer } from "node:http";
 import { join, relative, resolve, extname, sep } from "node:path";
 
@@ -157,6 +159,9 @@ async function runClaude() {
   writeFileSync(STATE, JSON.stringify({ job, result, code, session: sess }));
   if (job.mode === "plan" || code) {
     await post("/api/runner/finish", { result, status: code ? "error" : "done", session_id: sess });
+  } else {
+    // workflow v3: objavo javi job „objavi“; rezultat (cena, čas) gre zdaj
+    await post("/api/runner/events", { items: [], session_id: sess, result }).catch((e) => console.error("result:", e.message));
   }
 }
 
@@ -394,18 +399,34 @@ async function live() {
 // ---------- objava ----------
 function git(...a) { return execFileSync("git", a, { encoding: "utf8" }).trim(); }
 
-/** Commit (če so spremembe) + push v base ali v vejo `branch` + PR. */
-async function publish({ base, mode, branch, title, message }) {
+/** Commit (če so spremembe) + push v base ali v vejo `branch` + PR. `fresh`: job „objavi“ (v3). */
+async function publish({ base, mode, branch, title, message, fresh = false }) {
   const out = {};
   git("config", "user.name", "Klodi");
   git("config", "user.email", "klodi@users.noreply.github.com");
   git("add", "-A");
   const staged = git("diff", "--cached", "--name-only");
   if (staged) git("commit", "-m", title, "-m", message);
-  const ahead = Number(git("rev-list", "--count", `origin/${base}..HEAD`) || 0);
+  const repo = process.env.GITHUB_REPOSITORY;
+  const remote = `https://x-access-token:${process.env.GH_TOKEN}@github.com/${repo}.git`;
+  let target = `origin/${base}`;
+  if (fresh && staged) {
+    // med tekom (živa seja: ure) je lahko kdo pushal v base: commit postavi na vrh
+    git("fetch", "--no-tags", remote, base);
+    try { git("rebase", "FETCH_HEAD"); }
+    catch {
+      try { git("rebase", "--abort"); } catch {}
+      // spor z novejšimi commiti: dela ne zavržemo — gre v vejo + PR, kjer se spor razreši
+      if (mode !== "pr") {
+        mode = "pr";
+        title = "[spor z " + base + "] " + title;
+        message = `Spremembe so v sporu z novejšimi commiti v ${base}, zato niso objavljene direktno, ampak v tem PR.\n\n` + message;
+      }
+    }
+    target = "FETCH_HEAD";
+  }
+  const ahead = staged || !fresh ? Number(git("rev-list", "--count", `${target}..HEAD`) || 0) : 0;
   if (ahead > 0) {
-    const repo = process.env.GITHUB_REPOSITORY;
-    const remote = `https://x-access-token:${process.env.GH_TOKEN}@github.com/${repo}.git`;
     const sha = git("rev-parse", "HEAD");
     if (mode === "pr") {
       git("push", remote, `HEAD:refs/heads/${branch}`);
@@ -467,9 +488,57 @@ async function finish() {
   await post("/api/runner/finish", out);
 }
 
+// ---------- workflow v3 ----------
+const PATCH_DIR = join(TMP, "klodi-patch");
+const PATCH = join(PATCH_DIR, "changes.patch");
+
+/** Job „claude“, zadnji korak: vse spremembe (tudi Claudove lokalne commite) kot binarni patch glede na CC_BASE. */
+function pack() {
+  const base = process.env.CC_BASE;
+  mkdirSync(PATCH_DIR, { recursive: true });
+  if (!base) throw new Error("Manjka CC_BASE");
+  git("add", "-A");
+  const diff = execFileSync("git", ["diff", "--cached", "--binary", "--no-color", "--no-ext-diff", base], { maxBuffer: 1 << 30 });
+  writeFileSync(PATCH, diff);
+  console.log(`patch: ${diff.length} B`);
+}
+
+/**
+ * Job „objavi“ (svež stroj, edini z GH_TOKEN): patch iz artifacta → commit → push/PR.
+ * Kam in kako vzame z API-ja, ne iz prvega joba (tam je lahko Claude spremenil karkoli).
+ */
+async function publishJob() {
+  let info;
+  try {
+    info = LIVE ? await session("info") : await post("/api/runner/info", {});
+  } catch (e) {
+    if (e.status === 410) { console.log("Tek/seja je že zaključen(a), nič za objavit."); return; }
+    throw e;
+  }
+  if (info.skip) return;
+  let out;
+  try {
+    if (existsSync(PATCH) && statSync(PATCH).size > 0) {
+      git("apply", "--index", "--binary", "--whitespace=nowarn", PATCH);
+    }
+    out = await publish({
+      base: info.branch, mode: info.mode, branch: "klodi/" + RUN.slice(0, 8),
+      title: info.title, message: info.message, fresh: true,
+    });
+  } catch (e) {
+    out = { error: scrub(e) };
+  }
+  if (LIVE) await session("finish", out);
+  else await post("/api/runner/finish", { status: out.error ? "error" : "done", ...out });
+}
+
 const cmd = process.argv[2];
-(cmd === "finish" ? finish() : LIVE ? live() : runClaude()).then(() => {
-  if (LIVE && cmd !== "finish") process.exit(0); // otroški procesi (tunel) ne smejo držati koraka
+const main = cmd === "finish" ? finish() // workflow v2 (isti stroj kot Claude)
+  : cmd === "pack" ? Promise.resolve().then(pack)
+  : cmd === "publish" ? publishJob()
+  : LIVE ? live() : runClaude();
+main.then(() => {
+  if (LIVE && cmd !== "finish" && cmd !== "pack" && cmd !== "publish") process.exit(0); // otroški procesi (tunel) ne smejo držati koraka
 }).catch(async (e) => {
   console.error(e);
   try {
