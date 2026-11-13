@@ -789,6 +789,15 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
         id="chat"
         ref={chatRef}
         aria-live="polite"
+        onClick={(e) => {
+          const b = (e.target as HTMLElement).closest("button.copy");
+          const code = b?.closest("pre")?.querySelector("code");
+          if (!b || !code) return;
+          navigator.clipboard?.writeText(code.textContent || "").then(() => {
+            b.textContent = "Kopirano";
+            setTimeout(() => { b.textContent = "Kopiraj"; }, 1500);
+          }).catch(() => {});
+        }}
         onScroll={(e) => {
           const c = e.currentTarget;
           nearBottom.current = c.scrollHeight - c.scrollTop - c.clientHeight < 80;
