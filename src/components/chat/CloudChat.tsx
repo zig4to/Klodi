@@ -93,7 +93,7 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
   const [navHidden, setNavHidden] = useState(false);
   const [frameKey, setFrameKey] = useState(0);
   const [live, setLive] = useState<CloudSession | null>(null);
-  const [sso, setSso] = useState<{ key: number; hash: string } | null>(null);
+  const [sso, setSso] = useState<{ key: string; hash: string } | null>(null);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const chatRef = useRef<HTMLElement>(null);
@@ -186,6 +186,7 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
   const running = ACTIVE(lastRun);
   const liveOpen = OPEN(live) && !!openThread && live!.thread_id === openThread.id;
   const liveStatus = liveOpen ? live!.status : null;
+  const liveUrl = liveStatus === "ready" || liveStatus === "ending" ? live!.preview_url || "" : "";
 
   // rezerva, če Realtime zamudi: med tekom (in med zagonom/koncem žive seje) preveri vsakih 8 s
   const polling = running || liveStatus === "starting" || liveStatus === "ending";
@@ -194,6 +195,14 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
     const t = setInterval(load, 8000);
     return () => clearInterval(t);
   }, [polling, load]);
+
+  // živa seja teče: ko se konča (20 min brez dela, Končaj drugje), mora UI to izvedeti
+  // tudi brez Realtime — preveri vsakih 30 s
+  useEffect(() => {
+    if (liveStatus !== "ready" || polling) return;
+    const t = setInterval(load, 30_000);
+    return () => clearInterval(t);
+  }, [liveStatus, polling, load]);
 
   // živa seja brez hot reloada (statične datoteke): osveži predogled po vsakem odgovoru
   const liveCold = liveStatus === "ready" && !!live?.preview_url && !live.preview_hot;
@@ -204,10 +213,14 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
     return () => clearTimeout(t);
   }, [liveCold, lastLiveDone]);
 
-  // Predogled je iframe na drugi strani (vercel.app/github.io): aplikaciji iz
+  // Živi predogled je iframe na drugi strani (trycloudflare.com): aplikaciji iz
   // zbirke (isti Supabase) podamo prijavo kot hub — #sb_at=…&sb_rt=… —, da se
-  // v okvirju prijavi sama. Ob vsakem novem nalaganju okvirja (frameKey) sveža.
-  const suiteApp = inSuite(repo.full_name);
+  // v okvirju prijavi sama (runnerjev proxy piškotke naredi uporabne v iframu).
+  // Samo živi seji: objavljena aplikacija (deploy_url) piškotkov v tujem iframu
+  // ne more shraniti in bi ostala na „Prijavljanje …“. Žetona sveža ob vsakem
+  // nalaganju okvirja in ob novem naslovu predogleda.
+  const suiteApp = inSuite(repo.full_name) && !!liveUrl;
+  const ssoKey = frameKey + "|" + liveUrl;
   useEffect(() => {
     if (!suiteApp) return;
     let off = false;
@@ -215,15 +228,15 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
       if (off) return;
       const s = data.session;
       setSso({
-        key: frameKey,
+        key: ssoKey,
         hash: s ? `#sb_at=${encodeURIComponent(s.access_token)}&sb_rt=${encodeURIComponent(s.refresh_token)}` : "",
       });
     });
     return () => {
       off = true;
     };
-  }, [supabase, suiteApp, frameKey]);
-  const ssoReady = !suiteApp || sso?.key === frameKey;
+  }, [supabase, suiteApp, ssoKey]);
+  const ssoReady = !suiteApp || sso?.key === ssoKey;
 
   // po objavi v main: predogled osveži, ko deploy verjetno konča
   const lastCommit = lastRun?.commit_sha;
@@ -638,7 +651,6 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
     return out;
   }
 
-  const liveUrl = liveStatus === "ready" || liveStatus === "ending" ? live!.preview_url || "" : "";
   const pvUrl = liveUrl || repo.deploy_url || "";
 
   return (
