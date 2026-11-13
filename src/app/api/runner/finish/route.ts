@@ -39,5 +39,7 @@ export const POST = route(async (req: Request) => {
     error: b.error ?? null,
     finished_at: new Date().toISOString(),
   }).eq("id", run.id);
+  // živa seja: števec nedejavnosti začne znova
+  if (run.session_id) await db.from("cloud_sessions").update({ last_activity_at: new Date().toISOString() }).eq("id", run.session_id);
   return { ok: true };
 });

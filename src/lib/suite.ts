@@ -25,3 +25,8 @@ export function suiteStyle(fullName: string): { accent: string; accent2: string;
 export function repoTitle(fullName: string): string {
   return SUITE[fullName.toLowerCase()]?.name ?? fullName.split("/").pop() ?? fullName;
 }
+
+/** Aplikacija iz zbirke Bitneverse (isti Supabase projekt ProjektiBaze kot Klodi). */
+export function inSuite(fullName: string): boolean {
+  return !!SUITE[fullName.toLowerCase()];
+}

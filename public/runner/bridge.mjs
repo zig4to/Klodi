@@ -1,14 +1,19 @@
 // Klodi runner: teče v GitHub Actions v repozitoriju uporabnika.
 //   node bridge.mjs claude   — vzame nalogo z API-ja, zažene `claude -p` (stream-json) in sproti
 //                              pošilja elemente pogovora (ista oblika kot zaganjalnik/claude.js)
+//                              CC_LIVE=1: živa seja — dev strežnik + Cloudflare tunel (predogled),
+//                              prompti iz vrste drug za drugim, dokler uporabnik ne konča ali 20 min nič
 //   node bridge.mjs finish   — commit + push v main ali veja + PR, javi rezultat
 // Brez odvisnosti. Okolje: CC_API, CC_RUN, CC_TOKEN (+ GH_TOKEN, GITHUB_REPOSITORY samo pri finish).
 import { spawn, execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { join, relative } from "node:path";
+import { readFileSync, writeFileSync, existsSync, createWriteStream, chmodSync, statSync, createReadStream } from "node:fs";
+import { createServer } from "node:http";
+import { join, relative, resolve, extname, sep } from "node:path";
 
 const API = process.env.CC_API, RUN = process.env.CC_RUN, TOKEN = process.env.CC_TOKEN;
-const STATE = join(process.env.RUNNER_TEMP || "/tmp", "klodi.json");
+const LIVE = process.env.CC_LIVE === "1";
+const TMP = process.env.RUNNER_TEMP || "/tmp";
+const STATE = join(TMP, "klodi.json");
 if (!API || !RUN || !TOKEN) { console.error("Manjka CC_API/CC_RUN/CC_TOKEN"); process.exit(1); }
 
 async function post(path, body) {
@@ -21,14 +26,16 @@ async function post(path, body) {
       });
       const d = await r.json().catch(() => ({}));
       if (r.ok) return d;
-      if (r.status < 500) { const err = new Error(d.error || "HTTP " + r.status); err.fatal = true; throw err; }
+      if (r.status < 500) { const err = new Error(d.error || "HTTP " + r.status); err.fatal = true; err.status = r.status; throw err; }
     } catch (e) {
       if (i === 3 || e.fatal) throw e;
     }
-    await new Promise((res) => setTimeout(res, 1000 * (i + 1)));
+    await sleep(1000 * (i + 1));
   }
 }
+const session = (op, body = {}) => post("/api/runner/session", { op, ...body });
 
+const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 const short = (s, n) => { s = String(s || "").replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, n) + "…" : s; };
 const cwd = process.cwd();
 const rel = (p) => { if (!p) return ""; const r = relative(cwd, p); return (r && !r.startsWith("..") ? r : p).replace(/\\/g, "/"); };
@@ -42,28 +49,34 @@ function describe(input) {
   return "";
 }
 
-async function runClaude() {
-  const job = await post("/api/runner/start", {
-    gh_run_id: process.env.GITHUB_RUN_ID,
-    gh_run_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
-  });
-  writeFileSync(STATE, JSON.stringify({ job }));
-
-  const args = [...job.args];
-  if (job.resume) args.push("--resume", job.resume);
+/** Okolje brez žetonov Klodija/GitHuba (za Clauda); `noClaude` odstrani še Claude poverilnice (dev strežnik). */
+function cleanEnv(noClaude = false) {
   const env = { ...process.env };
-  for (const k of ["CC_TOKEN", "GH_TOKEN", "GITHUB_TOKEN", "ACTIONS_RUNTIME_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN"]) delete env[k];
-  if (!env.CLAUDE_CODE_OAUTH_TOKEN) delete env.CLAUDE_CODE_OAUTH_TOKEN;
-  if (!env.ANTHROPIC_API_KEY) delete env.ANTHROPIC_API_KEY;
+  for (const k of ["CC_TOKEN", "GH_TOKEN", "GITHUB_TOKEN", "ACTIONS_RUNTIME_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_RESULTS_URL", "ACTIONS_CACHE_URL"]) delete env[k];
+  if (!env.CLAUDE_CODE_OAUTH_TOKEN || noClaude) delete env.CLAUDE_CODE_OAUTH_TOKEN;
+  if (!env.ANTHROPIC_API_KEY || noClaude) delete env.ANTHROPIC_API_KEY;
+  if (noClaude) for (const k of ["CC_API", "CC_RUN", "CC_LIVE"]) delete env[k];
+  return env;
+}
 
-  let queue = [], seq = 0, session = null, sentSession = null, result = null, flushing = Promise.resolve();
-  let child = null, cancelled = false;
+/**
+ * En prompt: `claude -p` s sprotnim pošiljanjem elementov na /api/runner/events.
+ * Vrne { result, code, session, cancelled }. cancelled = tek je bil ustavljen na strani (410).
+ */
+async function runPrompt(runId, job, extraArgs = []) {
+  const args = [...job.args, ...extraArgs];
+  if (job.resume) args.push("--resume", job.resume);
+  const env = cleanEnv();
+
+  let queue = [], seq = 0, sess = null, sentSession = null, result = null, flushing = Promise.resolve();
+  let child = null, cancelled = false, lastPost = 0;
   const tools = {};
   const push = (item) => queue.push({ seq: seq++, item });
-  function flush() {
-    if (!queue.length && session === sentSession) return flushing;
-    const items = queue; queue = []; sentSession = session;
-    flushing = flushing.then(() => post("/api/runner/events", { items, session_id: session })).catch((e) => {
+  function flush(force = false) {
+    // vsaj vsakih 5 s (tudi prazno), da runner hitro izve za Ustavi
+    if (!force && !queue.length && sess === sentSession && Date.now() - lastPost < 5000) return flushing;
+    const items = queue; queue = []; sentSession = sess; lastPost = Date.now();
+    flushing = flushing.then(() => post("/api/runner/events", { run_id: runId, items, session_id: sess })).catch((e) => {
       console.error("events:", e.message);
       // tek je bil ustavljen na strani (410): ustavi Clauda
       if (e.fatal && child) { cancelled = true; child.kill("SIGTERM"); }
@@ -74,7 +87,7 @@ async function runClaude() {
 
   function onLine(line) {
     let m; try { m = JSON.parse(line); } catch { return; }
-    if (m.session_id) session = m.session_id;
+    if (m.session_id) sess = m.session_id;
     if (m.type === "assistant" && m.message?.content) {
       for (const c of m.message.content) {
         if (c.type === "text" && c.text.trim()) push({ k: "text", text: c.text });
@@ -105,7 +118,7 @@ async function runClaude() {
     }
   }
 
-  const code = await new Promise((resolve) => {
+  const code = await new Promise((resolveCode) => {
     child = spawn(process.env.CLAUDE_BIN || "claude", args, { env, stdio: ["pipe", "pipe", "pipe"] });
     let buf = "", errBuf = "";
     child.stdout.setEncoding("utf8");
@@ -117,72 +130,270 @@ async function runClaude() {
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (d) => { errBuf = (errBuf + d).slice(-2000); process.stderr.write(d); });
     let done = false;
-    child.on("error", (e) => { if (done) return; done = true; push({ k: "err", text: "Claude Code se ni zagnal: " + e.message }); resolve(1); });
+    child.on("error", (e) => { if (done) return; done = true; push({ k: "err", text: "Claude Code se ni zagnal: " + e.message }); resolveCode(1); });
     child.on("close", (c) => {
       if (done) return; done = true;
       if (buf.trim()) onLine(buf);
-      if (c && !result) push({ k: "err", text: short(errBuf, 600) || "Izhod " + c });
-      resolve(c || 0);
+      if (c && !result && !cancelled) push({ k: "err", text: short(errBuf, 600) || "Izhod " + c });
+      resolveCode(c || 0);
     });
     child.stdin.end(job.prompt);
   });
 
   clearInterval(timer);
-  await flush();
+  if (!cancelled) await flush(true);
+  return { result, code, session: sess, cancelled };
+}
+
+// ---------- en prompt = en tek ----------
+async function runClaude() {
+  const job = await post("/api/runner/start", {
+    gh_run_id: process.env.GITHUB_RUN_ID,
+    gh_run_url: ghRunUrl(),
+  });
+  writeFileSync(STATE, JSON.stringify({ job }));
+  const { result, code, session: sess, cancelled } = await runPrompt(RUN, job);
   if (cancelled) { writeFileSync(STATE, JSON.stringify({ cancelled: true })); return; }
-  writeFileSync(STATE, JSON.stringify({ job, result, code, session }));
+  writeFileSync(STATE, JSON.stringify({ job, result, code, session: sess }));
   if (job.mode === "plan" || code) {
-    await post("/api/runner/finish", { result, status: code ? "error" : "done", session_id: session });
+    await post("/api/runner/finish", { result, status: code ? "error" : "done", session_id: sess });
   }
 }
 
+const ghRunUrl = () => `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+
+// ---------- živa seja ----------
+const procs = [];
+const strip = (s) => s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
+
+/** Zažene ukaz, izpis v dnevnik; razreši ob izhodu (napaka, če koda ni 0). */
+function runTo(log, cmd, args, env) {
+  return new Promise((res, rej) => {
+    log.write(`\n$ ${cmd} ${args.join(" ")}\n`);
+    const p = spawn(cmd, args, { env, stdio: ["ignore", "pipe", "pipe"] });
+    p.stdout.on("data", (d) => log.write(d));
+    p.stderr.on("data", (d) => log.write(d));
+    p.on("error", rej);
+    p.on("close", (c) => (c ? rej(new Error(`${cmd} ${args.join(" ")}: izhod ${c}`)) : res()));
+  });
+}
+
+/** Proces v ozadju; razreši, ko izpis ujame `re` (vrne zadetek), ali zavrne po `ms`. */
+function background(log, cmd, args, env, re, ms) {
+  return new Promise((res, rej) => {
+    log.write(`\n$ ${cmd} ${args.join(" ")}\n`);
+    const p = spawn(cmd, args, { env, stdio: ["ignore", "pipe", "pipe"] });
+    procs.push(p);
+    let seen = "", done = false;
+    const t = setTimeout(() => { if (!done) { done = true; rej(new Error(`${cmd}: ni odgovora v ${ms / 1000} s`)); } }, ms);
+    const on = (d) => {
+      log.write(d);
+      if (done) return;
+      seen = (seen + strip(String(d))).slice(-4000);
+      const m = re.exec(seen);
+      if (m) { done = true; clearTimeout(t); res(m); }
+    };
+    p.stdout.on("data", on);
+    p.stderr.on("data", on);
+    p.on("error", (e) => { if (!done) { done = true; clearTimeout(t); rej(e); } });
+    p.on("close", (c) => { if (!done) { done = true; clearTimeout(t); rej(new Error(`${cmd} se je ustavil (izhod ${c}). Glej dnevnik.`)); } });
+  });
+}
+
+const MIME = {
+  ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png",
+  ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".ico": "image/x-icon",
+  ".webmanifest": "application/manifest+json", ".txt": "text/plain; charset=utf-8", ".woff2": "font/woff2",
+  ".woff": "font/woff", ".mp3": "audio/mpeg", ".mp4": "video/mp4", ".wasm": "application/wasm",
+};
+
+/** Statični strežnik za aplikacije brez `npm run dev` (GH Pages). Brez predpomnjenja, brez skritih datotek. */
+function staticServer(port) {
+  return new Promise((res) => {
+    const root = resolve(cwd);
+    const srv = createServer((req, rsp) => {
+      let p = decodeURIComponent((req.url || "/").split("?")[0]);
+      if (p.split("/").some((seg) => seg.startsWith("."))) { rsp.writeHead(404); return rsp.end("404"); }
+      let f = resolve(root, "." + p);
+      if (f !== root && !f.startsWith(root + sep)) { rsp.writeHead(403); return rsp.end(); }
+      try { if (statSync(f).isDirectory()) f = join(f, "index.html"); } catch {}
+      if (!existsSync(f)) { rsp.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" }); return rsp.end("404 " + p); }
+      rsp.writeHead(200, { "Content-Type": MIME[extname(f).toLowerCase()] || "application/octet-stream", "Cache-Control": "no-store" });
+      createReadStream(f).pipe(rsp);
+    });
+    srv.listen(port, "127.0.0.1", () => res(srv));
+  });
+}
+
+/** Dev strežnik: `npm run dev` (port iz izpisa) ali statični strežnik. */
+async function startDev(log, extraEnv) {
+  const env = { ...cleanEnv(true), ...extraEnv, BROWSER: "none", PORT: "3000", CI: "", NEXT_TELEMETRY_DISABLED: "1" };
+  let pkg = null;
+  try { pkg = JSON.parse(readFileSync("package.json", "utf8")); } catch {}
+  if (pkg?.scripts?.dev) {
+    if (existsSync("package-lock.json")) await runTo(log, "npm", ["ci", "--no-audit", "--no-fund"], env);
+    else await runTo(log, "npm", ["install", "--no-audit", "--no-fund", "--no-package-lock"], env);
+    const m = await background(log, "npm", ["run", "dev"], env,
+      /(https?):\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]|[\w.-]+):(\d{2,5})/, 240_000);
+    return { port: Number(m[2]), https: m[1] === "https", hot: true };
+  }
+  await staticServer(8080);
+  log.write("\nstatični strežnik: http://127.0.0.1:8080\n");
+  return { port: 8080, https: false, hot: false };
+}
+
+/** Cloudflare quick tunnel (brez računa): vrne https://….trycloudflare.com */
+async function startTunnel(log, dev) {
+  const bin = join(TMP, "cloudflared");
+  if (!existsSync(bin)) {
+    const r = await fetch("https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64");
+    if (!r.ok) throw new Error("cloudflared: prenos ni uspel (" + r.status + ")");
+    writeFileSync(bin, Buffer.from(await r.arrayBuffer()));
+    chmodSync(bin, 0o755);
+  }
+  const target = `${dev.https ? "https" : "http"}://localhost:${dev.port}`;
+  const args = ["tunnel", "--no-autoupdate", "--url", target, "--http-host-header", `localhost:${dev.port}`];
+  if (dev.https) args.push("--no-tls-verify");
+  const m = await background(log, bin, args, cleanEnv(true), /https:\/\/(?!api\.)[a-z0-9-]+\.trycloudflare\.com/, 90_000);
+  return m[0];
+}
+
+async function live() {
+  const MAX_MS = 340 * 60_000; // workflow timeout je 360 min: pusti čas za objavo
+  const t0 = Date.now();
+  const start = await session("start", { gh_run_id: process.env.GITHUB_RUN_ID, gh_run_url: ghRunUrl() });
+  const state = { live: true, start, prompts: [] };
+  const save = () => writeFileSync(STATE, JSON.stringify(state));
+  save();
+
+  // predogled: napaka ne ustavi seje (Claude dela naprej, le brez predogleda)
+  const logPath = join(TMP, "dev.log");
+  const log = createWriteStream(logPath, { flags: "a" });
+  let dev = null;
+  try {
+    dev = await startDev(log, start.env || {});
+    const url = await startTunnel(log, dev);
+    // tunel potrebuje nekaj sekund, preden DNS deluje
+    for (let i = 0; i < 15; i++) {
+      try { const r = await fetch(url, { method: "HEAD" }); if (r.status < 530) break; } catch {}
+      await sleep(2000);
+    }
+    await session("preview", { url, hot: dev.hot });
+  } catch (e) {
+    console.error("predogled:", e);
+    await session("preview", { url: null, error: "Predogled se ni zagnal: " + short(e.message, 400) }).catch(() => {});
+  }
+
+  const sys = [
+    "Teče živa seja Klodi: uporabnik vidi aplikacijo v živo v predogledu.",
+    dev ? `Dev strežnik že teče na ${dev.https ? "https" : "http"}://localhost:${dev.port}${dev.hot ? " s hot reloadom" : " (statične datoteke, predogled se osveži po vsakem odgovoru)"}; dnevnik je v ${logPath}. Ne zaganjaj ga znova in ga ne ustavljaj.` : "",
+    "Ne commitaj in ne pushaj: vse spremembe seje se objavijo ob koncu seje.",
+  ].filter(Boolean).join(" ");
+
+  while (Date.now() - t0 < MAX_MS) {
+    let n;
+    try { n = await session("next"); }
+    catch (e) { if (e.fatal) break; await sleep(5000); continue; }
+    if (n.end) break;
+    if (!n.run) { await sleep(3000); continue; }
+    state.prompts.push(n.run.prompt);
+    save();
+    const r = await runPrompt(n.run.id, n.run, ["--append-system-prompt", sys]);
+    if (!r.cancelled) {
+      await post("/api/runner/finish", { run_id: n.run.id, result: r.result, status: r.code ? "error" : "done", session_id: r.session })
+        .catch((e) => console.error("finish:", e.message));
+    }
+  }
+  for (const p of procs) { try { p.kill("SIGTERM"); } catch {} }
+  log.end();
+  save();
+}
+
+// ---------- objava ----------
 function git(...a) { return execFileSync("git", a, { encoding: "utf8" }).trim(); }
+
+/** Commit (če so spremembe) + push v base ali v vejo `branch` + PR. */
+async function publish({ base, mode, branch, title, message }) {
+  const out = {};
+  git("config", "user.name", "Klodi");
+  git("config", "user.email", "klodi@users.noreply.github.com");
+  git("add", "-A");
+  const staged = git("diff", "--cached", "--name-only");
+  if (staged) git("commit", "-m", title, "-m", message);
+  const ahead = Number(git("rev-list", "--count", `origin/${base}..HEAD`) || 0);
+  if (ahead > 0) {
+    const repo = process.env.GITHUB_REPOSITORY;
+    const remote = `https://x-access-token:${process.env.GH_TOKEN}@github.com/${repo}.git`;
+    const sha = git("rev-parse", "HEAD");
+    if (mode === "pr") {
+      git("push", remote, `HEAD:refs/heads/${branch}`);
+      const r = await fetch(`https://api.github.com/repos/${repo}/pulls`, {
+        method: "POST",
+        headers: { Authorization: "Bearer " + process.env.GH_TOKEN, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
+        body: JSON.stringify({ title, head: branch, base, body: message.slice(0, 4000) }),
+      });
+      const pr = await r.json();
+      out.pr_url = pr.html_url || null;
+      out.commit_sha = sha;
+    } else {
+      git("push", remote, `HEAD:refs/heads/${base}`);
+      out.commit_sha = sha;
+      out.commit_url = `https://github.com/${repo}/commit/${sha}`;
+    }
+  }
+  return out;
+}
+const scrub = (e) => short(String(e.stderr || e.message).replace(/x-access-token:[^@]+@/g, ""), 600);
 
 async function finish() {
   if (!existsSync(STATE)) return;
   const st = JSON.parse(readFileSync(STATE, "utf8"));
-  const { job, result, code, session } = st;
-  if (!job || job.mode === "plan" || code) return; // že javljeno
-  const out = { result, status: "done", session_id: session };
-  try {
-    git("config", "user.name", "Klodi");
-    git("config", "user.email", "klodi@users.noreply.github.com");
-    git("add", "-A");
-    const staged = git("diff", "--cached", "--name-only");
-    if (staged) git("commit", "-m", "Klodi: " + short(job.prompt, 60), "-m", job.prompt.slice(0, 2000));
-    const base = job.branch;
-    const ahead = Number(git("rev-list", "--count", `origin/${base}..HEAD`) || 0);
-    if (ahead > 0) {
-      const repo = process.env.GITHUB_REPOSITORY;
-      const remote = `https://x-access-token:${process.env.GH_TOKEN}@github.com/${repo}.git`;
-      const sha = git("rev-parse", "HEAD");
-      if (job.mode === "pr") {
-        const branch = "klodi/" + RUN.slice(0, 8);
-        git("push", remote, `HEAD:refs/heads/${branch}`);
-        const r = await fetch(`https://api.github.com/repos/${repo}/pulls`, {
-          method: "POST",
-          headers: { Authorization: "Bearer " + process.env.GH_TOKEN, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
-          body: JSON.stringify({ title: "Klodi: " + short(job.prompt, 60), head: branch, base, body: job.prompt.slice(0, 4000) }),
-        });
-        const pr = await r.json();
-        out.pr_url = pr.html_url || null;
-        out.commit_sha = sha;
-      } else {
-        git("push", remote, `HEAD:refs/heads/${base}`);
-        out.commit_sha = sha;
-        out.commit_url = `https://github.com/${repo}/commit/${sha}`;
-      }
+
+  if (st.live) {
+    const { start, prompts } = st;
+    let out = {};
+    try {
+      out = await publish({
+        base: start.branch,
+        mode: start.mode,
+        branch: "klodi/" + RUN.slice(0, 8),
+        title: "Klodi (živa seja): " + short(prompts[0] || "spremembe", 60),
+        message: prompts.map((p, i) => `${i + 1}. ${short(p, 400)}`).join("\n").slice(0, 4000) || "Živa seja",
+      });
+    } catch (e) {
+      out = { error: scrub(e) };
     }
+    await session("finish", out);
+    return;
+  }
+
+  const { job, result, code, session: sess } = st;
+  if (!job || job.mode === "plan" || code) return; // že javljeno
+  const out = { result, status: "done", session_id: sess };
+  try {
+    Object.assign(out, await publish({
+      base: job.branch,
+      mode: job.mode,
+      branch: "klodi/" + RUN.slice(0, 8),
+      title: "Klodi: " + short(job.prompt, 60),
+      message: job.prompt.slice(0, 2000),
+    }));
   } catch (e) {
     out.status = "error";
-    out.error = short(String(e.stderr || e.message).replace(/x-access-token:[^@]+@/g, ""), 600);
+    out.error = scrub(e);
   }
   await post("/api/runner/finish", out);
 }
 
 const cmd = process.argv[2];
-(cmd === "finish" ? finish() : runClaude()).catch(async (e) => {
+(cmd === "finish" ? finish() : LIVE ? live() : runClaude()).then(() => {
+  if (LIVE && cmd !== "finish") process.exit(0); // otroški procesi (tunel) ne smejo držati koraka
+}).catch(async (e) => {
   console.error(e);
-  try { await post("/api/runner/finish", { status: "error", error: short(e.message, 600) }); } catch {}
+  try {
+    if (LIVE) await session("finish", { error: short(e.message, 600) });
+    else await post("/api/runner/finish", { status: "error", error: short(e.message, 600) });
+  } catch {}
   process.exit(1);
 });

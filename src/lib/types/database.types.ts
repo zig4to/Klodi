@@ -69,8 +69,32 @@ export type CloudRun = {
   pr_url: string | null;
   result: RunResult;
   error: string | null;
+  session_id: string | null;
   created_at: string;
   finished_at: string | null;
+};
+
+export type SessionStatus = "starting" | "ready" | "ending" | "ended" | "error";
+
+/** Živa seja: en tek GitHub Actions z dev strežnikom in tunelom, več promptov. */
+export type CloudSession = {
+  id: string;
+  user_id: string;
+  repo_id: string;
+  thread_id: string;
+  status: SessionStatus;
+  token_hash: string;
+  preview_url: string | null;
+  preview_hot: boolean;
+  gh_run_id: number | null;
+  gh_run_url: string | null;
+  commit_sha: string | null;
+  commit_url: string | null;
+  pr_url: string | null;
+  error: string | null;
+  last_activity_at: string;
+  created_at: string;
+  ended_at: string | null;
 };
 
 export type CloudEvent = {
@@ -90,6 +114,7 @@ export type Database = {
       cloud_threads: Table<CloudThread, "user_id" | "repo_id">;
       cloud_runs: Table<CloudRun, "user_id" | "thread_id" | "prompt" | "token_hash">;
       cloud_events: Table<CloudEvent, "run_id" | "user_id" | "seq" | "item">;
+      cloud_sessions: Table<CloudSession, "user_id" | "repo_id" | "thread_id" | "token_hash">;
     };
     Views: Record<string, never>;
     Functions: {

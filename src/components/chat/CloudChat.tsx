@@ -4,7 +4,7 @@ import "./chat.css";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import type { ChatItem, CloudEvent, CloudRepo, CloudRun, CloudThread, RunResult } from "@/lib/types/database.types";
+import type { ChatItem, CloudEvent, CloudRepo, CloudRun, CloudSession, CloudThread, RunResult } from "@/lib/types/database.types";
 import { esc, md } from "./md";
 
 // Pogovor s Claudom za en repozitorij — isti videz in funkcije kot Live Claude
@@ -31,6 +31,10 @@ ICON.Glob = ICON.Grep;
 
 const ICO_UP = '<path d="m18 15-6-6-6 6"/>';
 const ICO_DOWN = '<path d="m6 9 6 6 6-6"/>';
+// Lucide radio — živa seja
+const ICO_LIVE = '<path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/>';
+const SESSION_COLS = "id,user_id,repo_id,thread_id,status,preview_url,preview_hot,gh_run_id,gh_run_url,commit_sha,commit_url,pr_url,error,last_activity_at,created_at,ended_at";
+const OPEN = (s?: CloudSession | null) => !!s && (s.status === "starting" || s.status === "ready" || s.status === "ending");
 
 function Svg({ p, className = "i", id }: { p: string; className?: string; id?: string }) {
   return <svg className={className} id={id} viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: p }} />;
@@ -72,6 +76,7 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
   const [navHidden, setNavHidden] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [frameKey, setFrameKey] = useState(0);
+  const [live, setLive] = useState<CloudSession | null>(null);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const chatRef = useRef<HTMLElement>(null);
@@ -97,10 +102,13 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
     let rs: CloudRun[] = [];
     if (ids.length) {
       const { data } = await supabase.from("cloud_runs")
-        .select("id,user_id,thread_id,prompt,plan,status,gh_run_id,gh_run_url,commit_sha,commit_url,pr_url,result,error,created_at,finished_at")
+        .select("id,user_id,thread_id,prompt,plan,status,gh_run_id,gh_run_url,commit_sha,commit_url,pr_url,result,error,session_id,created_at,finished_at")
         .in("thread_id", ids).order("created_at", { ascending: false }).limit(25);
       rs = ((data || []) as CloudRun[]).reverse();
     }
+    const { data: ss } = await supabase.from("cloud_sessions").select(SESSION_COLS).eq("repo_id", repo.id)
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    setLive((ss as CloudSession | null) ?? null);
     const ev: Record<string, CloudEvent[]> = {};
     if (rs.length) {
       const { data } = await supabase.from("cloud_events").select("*").in("run_id", rs.map((r) => r.id))
@@ -136,6 +144,11 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
           return { ...cur, [e.run_id]: [...list, e].sort((a, b) => a.seq - b.seq) };
         });
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "cloud_sessions", filter: `user_id=eq.${userId}` }, (p) => {
+        const s = p.new as CloudSession;
+        if (s?.repo_id !== repo.id) return;
+        setLive((cur) => (!cur || cur.id === s.id || Date.parse(s.created_at) >= Date.parse(cur.created_at) ? { ...cur, ...s } : cur));
+      })
       .subscribe();
     const onVis = () => document.visibilityState === "visible" && load();
     document.addEventListener("visibilitychange", onVis);
@@ -149,13 +162,25 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
   const lastRun = runs[runs.length - 1];
   const openThread = threads.length && !threads[threads.length - 1].closed_at ? threads[threads.length - 1] : null;
   const running = ACTIVE(lastRun);
+  const liveOpen = OPEN(live) && !!openThread && live!.thread_id === openThread.id;
+  const liveStatus = liveOpen ? live!.status : null;
 
-  // rezerva, če Realtime zamudi: med tekom preveri vsakih 8 s
+  // rezerva, če Realtime zamudi: med tekom (in med zagonom/koncem žive seje) preveri vsakih 8 s
+  const polling = running || liveStatus === "starting" || liveStatus === "ending";
   useEffect(() => {
-    if (!running) return;
+    if (!polling) return;
     const t = setInterval(load, 8000);
     return () => clearInterval(t);
-  }, [running, load]);
+  }, [polling, load]);
+
+  // živa seja brez hot reloada (statične datoteke): osveži predogled po vsakem odgovoru
+  const liveCold = liveStatus === "ready" && !!live?.preview_url && !live.preview_hot;
+  const lastLiveDone = lastRun?.session_id && !ACTIVE(lastRun) ? lastRun.id : null;
+  useEffect(() => {
+    if (!liveCold || !lastLiveDone) return;
+    const t = setTimeout(() => setFrameKey((k) => k + 1), 500);
+    return () => clearTimeout(t);
+  }, [liveCold, lastLiveDone]);
 
   // po objavi v main: predogled osveži, ko deploy verjetno konča
   const lastCommit = lastRun?.commit_sha;
@@ -347,6 +372,18 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
     }
   }
 
+  async function toggleLive() {
+    try {
+      if (liveOpen) {
+        await call("/api/live", { op: "end" });
+        note(liveStatus === "starting" ? "Živa seja preklicana." : "Končujem živo sejo: spremembe gredo " + (repo.mode === "pr" ? "v pull request." : "v " + repo.default_branch + "."));
+      } else {
+        await call("/api/live", { op: "start" });
+        note("Zaganjam živo sejo (1–2 min). Prompte lahko pišeš že zdaj; spremembe se objavijo, ko klikneš Končaj ali po 20 min brez dela.");
+      }
+    } catch {}
+  }
+
   function grow() {
     const t = taRef.current;
     if (!t) return;
@@ -500,13 +537,22 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
       );
     });
     if (lastRun && !openThread && !ACTIVE(lastRun)) out.push(<div className="divider" key="dnew">Nov pogovor</div>);
-    if (running) {
+    if (liveOpen && live!.error) out.push(<div className="err" key="live-err">{live!.error}</div>);
+    const waitText = running
+      ? lastRun!.status === "queued"
+        ? liveStatus === "starting" ? "Čakam, da se živa seja zažene …" : liveOpen ? "Claude dela …" : "Zaganjam runner …"
+        : "Claude dela …"
+      : liveStatus === "starting" ? "Zaganjam živo sejo …"
+      : liveStatus === "ending" ? "Objavljam spremembe seje …"
+      : null;
+    const waitUrl = running ? lastRun!.gh_run_url : liveOpen ? live!.gh_run_url : null;
+    if (waitText) {
       out.push(
         <div className="working" id="working" key="working">
           <i></i><i></i><i></i>
-          <span>{lastRun!.status === "queued" ? "Zaganjam runner …" : "Claude dela …"}</span>
-          {lastRun!.gh_run_url && (
-            <span className="cc-status"> · <a href={lastRun!.gh_run_url} target="_blank" rel="noopener">Actions</a></span>
+          <span>{waitText}</span>
+          {waitUrl && (
+            <span className="cc-status"> · <a href={waitUrl} target="_blank" rel="noopener">Actions</a></span>
           )}
         </div>,
       );
@@ -514,7 +560,8 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
     return out;
   }
 
-  const pvUrl = repo.deploy_url || "";
+  const liveUrl = liveStatus === "ready" || liveStatus === "ending" ? live!.preview_url || "" : "";
+  const pvUrl = liveUrl || repo.deploy_url || "";
 
   return (
     <div
@@ -547,7 +594,24 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
         >
           <Svg p='<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>' />
         </button>
-        <button type="button" className="ico" title="Nov pogovor" aria-label="Nov pogovor" disabled={running} onClick={() => call("/api/new").catch(() => {})}>
+        <button
+          type="button"
+          className="ico"
+          id="live"
+          aria-pressed={liveOpen}
+          aria-label="Živa seja"
+          title={
+            liveStatus === "starting" ? "Živa seja se zaganja (klik: prekliči)"
+            : liveStatus === "ending" ? "Živa seja se zaključuje"
+            : liveOpen ? "Živa seja: predogled v živo (klik: končaj in objavi)"
+            : "Začni živo sejo: dev strežnik v Actions, predogled v živo, objava na koncu"
+          }
+          disabled={!ready || liveStatus === "ending" || (liveOpen && running && liveStatus !== "starting")}
+          onClick={toggleLive}
+        >
+          <Svg p={ICO_LIVE} />
+        </button>
+        <button type="button" className="ico" title="Nov pogovor" aria-label="Nov pogovor" disabled={running || liveOpen} onClick={() => call("/api/new").catch(() => {})}>
           <Svg p='<path d="M5 12h14"/><path d="M12 5v14"/>' />
         </button>
         <a href={`https://github.com/${repo.full_name}${lastRun?.commit_url ? "/commits/" + repo.default_branch : ""}`} target="_blank" rel="noopener">
@@ -559,8 +623,11 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
 
       <section id="pv" ref={pvRef} className={`${pvUrl ? "" : "off"}${collapsed && !phone ? " collapsed" : ""}`}>
         <div className="pv-bar">
-          <span className={`dot${pvUrl ? " on" : ""}`}></span>
-          <span className="pv-url">{pvUrl.replace(/^https?:\/\//, "") || "brez predogleda"}</span>
+          <span className={`dot${pvUrl ? " on" : ""}${liveUrl ? " live" : ""}`}></span>
+          <span className="pv-url">
+            {liveUrl ? "živo · " : liveStatus === "starting" ? "zaganjam živo sejo · " : ""}
+            {pvUrl.replace(/^https?:\/\//, "") || "brez predogleda"}
+          </span>
           <button type="button" className="ico" title="Osveži" aria-label="Osveži" onClick={() => setFrameKey((k) => k + 1)}>
             <Svg p='<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>' />
           </button>
@@ -585,7 +652,11 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
           <iframe key={frameKey} ref={frameRef} title="Predogled" src={pvUrl} allow="clipboard-write" />
         )}
         <div className="pv-empty pv-off">
-          <span>Predogled ni nastavljen. V Nastavitvah vpiši objavljen naslov aplikacije.</span>
+          <span>
+            {liveStatus === "starting"
+              ? "Zaganjam dev strežnik in tunel …"
+              : "Predogled ni nastavljen. V Nastavitvah vpiši objavljen naslov aplikacije ali začni živo sejo."}
+          </span>
           <button type="button" onClick={() => router.push("/nastavitve#repozitoriji")}>Nastavitve</button>
         </div>
       </section>
@@ -634,7 +705,7 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
           className={running ? "stop" : ""}
           title={running ? "Ustavi" : "Pošlji"}
           aria-label={running ? "Ustavi" : "Pošlji"}
-          disabled={!running && (!ready || sending)}
+          disabled={!running && (!ready || sending || liveStatus === "ending")}
         >
           <Svg p={running ? ICON.stop : ICON.send} />
         </button>

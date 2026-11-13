@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthUser, type AuthUser } from "@/lib/supabase/auth";
 import { admin } from "@/lib/supabase/admin";
 import { gh, GitHubError, WORKFLOW_PATH } from "@/lib/github";
-import type { CloudRepo, CloudRun, CloudThread } from "@/lib/types/database.types";
+import type { ChatItem, CloudRepo, CloudRun, CloudSession, CloudThread, SessionStatus } from "@/lib/types/database.types";
 
 export const APP_ID = "klodi";
 
@@ -83,31 +83,84 @@ export async function activeRun(threadId: string): Promise<CloudRun | null> {
 
 export const hashToken = (t: string) => createHash("sha256").update(t).digest("hex");
 
-/** Nov tek: vrstica v cloud_runs + workflow_dispatch v repozitoriju uporabnika. */
+export const newToken = () => randomBytes(24).toString("base64url");
+const OPEN_SESSION: SessionStatus[] = ["starting", "ready", "ending"];
+
+/** Odprta živa seja pogovora (starting/ready/ending) ali null. */
+export async function openSession(threadId: string): Promise<CloudSession | null> {
+  const { data } = await admin().from("cloud_sessions").select("*").eq("thread_id", threadId)
+    .in("status", OPEN_SESSION).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  return data;
+}
+
+/** workflow_dispatch v repozitoriju uporabnika (Klodi workflow v privzeti veji). */
+export async function dispatch(req: Request, repo: CloudRepo, inputs: Record<string, string>): Promise<void> {
+  const api = await gh(repo.installation_id);
+  const path = `/repos/${repo.full_name}/actions/workflows/${encodeURIComponent(WORKFLOW_PATH.split("/").pop()!)}/dispatches`;
+  const send = () => api("POST", path, { ref: repo.default_branch, inputs: { ...inputs, api: appBase(req) } });
+  try {
+    await send();
+  } catch (e) {
+    // pravkar posodobljen workflow GitHub včasih vidi z zamikom ("Unexpected inputs")
+    if (!(e instanceof GitHubError && e.status === 422)) throw e;
+    await new Promise((r) => setTimeout(r, 4000));
+    await send();
+  }
+}
+
+/** Element pogovora s strani strežnika (za zadnjim elementom teka). */
+export async function addEvent(run: { id: string; user_id: string }, item: ChatItem, gap = 1): Promise<void> {
+  const db = admin();
+  const { data: last } = await db.from("cloud_events").select("seq").eq("run_id", run.id)
+    .order("seq", { ascending: false }).limit(1).maybeSingle();
+  await db.from("cloud_events").insert({ run_id: run.id, user_id: run.user_id, seq: (last?.seq ?? -1) + gap, item });
+}
+
+/**
+ * Nov tek: vrstica v cloud_runs + workflow_dispatch v repozitoriju uporabnika.
+ * Če ima pogovor odprto živo sejo, gre prompt samo v vrsto (runner seje ga pobere).
+ */
 export async function startRun(req: Request, repo: CloudRepo, prompt: string, plan: boolean, extraAllow?: string): Promise<CloudRun> {
   if (!repo.workflow_installed_at) throw new HttpError(409, "Workflow še ni nameščen v repozitorij.");
   const db = admin();
   const thread = await openThread(repo);
   if (await activeRun(thread.id)) throw new HttpError(409, "Claude že dela na tem repozitoriju.");
+  const session = await openSession(thread.id);
+  if (session?.status === "ending") throw new HttpError(409, "Živa seja se zaključuje, počakaj na objavo.");
   if (extraAllow && !thread.allowed.includes(extraAllow)) {
     await db.from("cloud_threads").update({ allowed: [...thread.allowed, extraAllow] }).eq("id", thread.id);
   }
-  const token = randomBytes(24).toString("base64url");
+  const token = newToken();
   const { data: run, error } = await db.from("cloud_runs")
-    .insert({ user_id: repo.user_id, thread_id: thread.id, prompt, plan, token_hash: hashToken(token) })
+    .insert({
+      user_id: repo.user_id, thread_id: thread.id, prompt, plan,
+      // v seji runner uporablja žeton seje
+      token_hash: session ? session.token_hash : hashToken(token),
+      session_id: session?.id ?? null,
+    })
     .select("*").single();
   if (error) throw error;
+  if (session) {
+    await db.from("cloud_sessions").update({ last_activity_at: new Date().toISOString() }).eq("id", session.id);
+    return run;
+  }
   try {
-    const api = await gh(repo.installation_id);
-    await api("POST", `/repos/${repo.full_name}/actions/workflows/${encodeURIComponent(WORKFLOW_PATH.split("/").pop()!)}/dispatches`, {
-      ref: repo.default_branch,
-      inputs: { run_id: run.id, thread_id: thread.id, token, api: appBase(req) },
-    });
+    await dispatch(req, repo, { run_id: run.id, thread_id: thread.id, token });
   } catch (e) {
     await db.from("cloud_runs").update({ status: "error", error: (e as Error).message, finished_at: new Date().toISOString() }).eq("id", run.id);
     throw e;
   }
   return run;
+}
+
+/** Runner žive seje: preveri žeton seje. */
+export async function runnerSession(req: Request, sessionId: string): Promise<CloudSession> {
+  const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!token || !sessionId) throw new HttpError(401, "Žeton ni veljaven.");
+  const { data } = await admin().from("cloud_sessions").select("*").eq("id", sessionId).maybeSingle();
+  if (!data || data.token_hash !== hashToken(token)) throw new HttpError(401, "Žeton ni veljaven.");
+  if (!OPEN_SESSION.includes(data.status)) throw new HttpError(410, "Seja je končana.");
+  return data;
 }
 
 /** Runner: preveri enkratni žeton teka. */

@@ -77,7 +77,7 @@
   .title b { display: block; font-size: 15px; letter-spacing: -.01em; }
   .title span { display: flex; align-items: center; gap: 4px; font: 11.5px var(--mono); color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .title span svg { width: 12px; height: 12px; }
-  #auto[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  #auto[aria-pressed="true"], #live[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
   #push.ready { border-color: transparent; background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
 
   /* ---------- predogled ---------- */
@@ -103,6 +103,7 @@
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--soft); flex-shrink: 0; }
   .dot.on { background: var(--on); box-shadow: 0 0 0 3px color-mix(in srgb, var(--on) 25%, transparent); }
   .dot.starting { background: var(--wait); }
+  .dot.live { animation: cc-live 1.6s ease-in-out infinite; }
   iframe { flex: 1; width: 100%; min-height: 0; border: 0; background: #fff; }
   .pv-empty {
     flex: 1; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
@@ -248,3 +249,4 @@
 }
 
 @keyframes cc-pulse { 0%, 100% { opacity: .25; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
+@keyframes cc-live { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }

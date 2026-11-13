@@ -65,6 +65,19 @@ vpis tokena.
 5. Seja med teki: `actions/cache` za `~/.claude/projects`, ključ thread.
 6. **Ustavi** (`/api/stop`): cancel teka na GitHubu + status `cancelled`;
    runner ob 410 ubije Clauda. Webhook `workflow_run` je rezerva za status.
+7. **Živa seja** (gumb Živo, `/api/live` op `start`/`end`, workflow v2 z vhodom
+   `live`, timeout 360 min): `cloud_sessions` (žeton seje; teki v seji imajo
+   isti `token_hash` + `cloud_runs.session_id`). Runner `CC_LIVE=1`: `npm ci` +
+   `npm run dev` (port iz izpisa; brez skripte `dev` statični strežnik :8080) →
+   `cloudflared` quick tunnel (`--http-host-header localhost:<port>`) →
+   `/api/runner/session` op `preview` → zanka op `next` (vsake 3 s) → za vsak
+   prompt nov `claude -p --resume` + `--append-system-prompt` o dev strežniku.
+   Prompti v seji ne naredijo dispatcha (`startRun` jih samo postavi v vrsto).
+   Konec: Končaj (status `ending`), 20 min brez dela ali 340 min → korak
+   „Objavi“ commita vse naenkrat → op `finish`. Ustavi v seji ustavi le
+   trenutni prompt. Aplikacijam iz zbirke runner poda javna
+   `NEXT_PUBLIC_SUPABASE_URL/ANON_KEY`. Next aplikacije rabijo
+   `**.trycloudflare.com` v `allowedDevOrigins`, sicer HMR/JS ne deluje.
 
 ## Varnost
 
@@ -119,9 +132,8 @@ repozitorije je naslov iz `TomsStudios/apps-registry.js`.
 Plošča Bitneverse (`TomsStudios/apps-registry.js`): kartica `id: "klodi"`,
 vidna uporabnikom z `app_access` `klodi` (dodeli v `admin.html`).
 
-Ideja (ni narejeno): živa seja — tek v Actions ostane prižgan, `npm run dev` +
-Cloudflare quick tunnel kot predogled (hot reload), čaka na naslednje prompte,
-na koncu commit; stane minute Actions, zagon 1–2 min, max 6 h.
+Živa seja (tok 7) kaže dev strežnik prek tunela namesto `deploy_url`; stane
+minute Actions (zasebni repo), zagon 1–2 min, max ~6 h.
 
 **Pred `git push` vedno vprašaj Žigo.**
 
@@ -130,6 +142,7 @@ na koncu commit; stane minute Actions, zagon 1–2 min, max 6 h.
 | Migracija | Vsebina | Stanje |
 |---|---|---|
 | `0001_init` | `cloud_installations`, `cloud_repos`, `cloud_threads`, `cloud_runs`, `cloud_events`, RLS, Realtime | izvedena 2026-11-12 (`cloud_init` + `cloud_runs_hide_token` + `cloud_access_klodi`) |
+| `0002_live` | `cloud_sessions` (živa seja), `cloud_runs.session_id`, RLS, stolpčni grant brez `token_hash`, Realtime | izvedena 2026-11-13 (`cloud_live_sessions`) |
 
 `src/lib/types/database.types.ts` je ročno napisan — ob novi migraciji ga posodobi.
 

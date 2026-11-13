@@ -2,7 +2,8 @@
 // Vhodi so samo id teka, enkratni žeton in naslov API-ja; prompt in pravila runner vzame z API-ja,
 // zato ne pristanejo v dnevniku Actions. Vrednosti gredo v skripte prek env (ne ${{ }} v run:).
 
-export const WORKFLOW_VERSION = 1;
+// v2: vhod `live` — živa seja (dev strežnik + tunel, več promptov, do ~6 h)
+export const WORKFLOW_VERSION = 2;
 
 export function workflowYaml(apiBase: string): string {
   return `# Klodi v${WORKFLOW_VERSION} — ustvarila aplikacija Klodi (${apiBase}).
@@ -16,6 +17,7 @@ on:
       thread_id: { description: "Klodi pogovor", required: true }
       token: { description: "enkratni žeton", required: true }
       api: { description: "Klodi API", required: true, default: "${apiBase}" }
+      live: { description: "živa seja (1)", required: false, default: "" }
 concurrency:
   group: klodi-\${{ inputs.thread_id }}
   cancel-in-progress: false
@@ -25,11 +27,12 @@ permissions:
 jobs:
   claude:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: \${{ inputs.live == '1' && 360 || 60 }}
     env:
       CC_API: \${{ inputs.api }}
       CC_RUN: \${{ inputs.run_id }}
       CC_TOKEN: \${{ inputs.token }}
+      CC_LIVE: \${{ inputs.live }}
     steps:
       - name: Skrij žeton
         run: echo "::add-mask::$CC_TOKEN"

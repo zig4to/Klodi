@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { admin } from "@/lib/supabase/admin";
 import { verifyWebhook } from "@/lib/github";
+import { addEvent } from "@/lib/cloud";
 
 type Payload = {
   action?: string;
@@ -38,6 +39,23 @@ export async function POST(req: Request) {
           });
         }
         await db.from("cloud_runs").update({ status, gh_run_url: wr.html_url, finished_at: new Date().toISOString() }).eq("id", run.id);
+      }
+      // živa seja (run-name nosi id seje): runner ni javil konca
+      const { data: s } = await db.from("cloud_sessions").select("id,status").eq("id", m[1]).maybeSingle();
+      if (s && ["starting", "ready", "ending"].includes(s.status)) {
+        const now = new Date().toISOString();
+        const ok = wr.conclusion === "success" || wr.conclusion === "cancelled";
+        const { data: open } = await db.from("cloud_runs").select("id,user_id").eq("session_id", s.id).in("status", ["queued", "running"]);
+        for (const r of open || []) {
+          await addEvent(r, { k: "err", text: ok ? "Ustavljeno" : `Živa seja v GitHub Actions ni uspela (${wr.conclusion}). Preveri dnevnik.` }, 1000);
+        }
+        await db.from("cloud_runs").update({ status: "cancelled", finished_at: now }).eq("session_id", s.id).in("status", ["queued", "running"]);
+        await db.from("cloud_sessions").update({
+          status: ok ? "ended" : "error",
+          error: ok ? null : `Tek v GitHub Actions: ${wr.conclusion}`,
+          gh_run_url: wr.html_url,
+          ended_at: now,
+        }).eq("id", s.id);
       }
     }
   }
