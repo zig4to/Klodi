@@ -75,7 +75,6 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
   const [prompt, setPrompt] = useState("");
   const [sending, setSending] = useState(false);
   const [navHidden, setNavHidden] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
   const [frameKey, setFrameKey] = useState(0);
   const [live, setLive] = useState<CloudSession | null>(null);
   const [sso, setSso] = useState<{ key: number; hash: string } | null>(null);
@@ -230,7 +229,6 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
       setPlanState(store(K + "-plan") === "1");
       setPrompt(store(K + "-draft") || "");
       setNavHidden(store("cc-nav-hidden") === "1");
-      setCollapsed(store("cc-pv-collapsed") === "1");
     }, 0);
     return () => clearTimeout(t);
   }, [K]);
@@ -240,27 +238,10 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
     store(K + "-plan", on ? "1" : "0");
   }
 
-  // ---------- predogled: skrij glavo (telefon) ali predogled (računalnik) ----------
-  const [phone, setPhone] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 899px)");
-    const t = setTimeout(() => setPhone(mq.matches), 0);
-    const on = () => setPhone(mq.matches);
-    mq.addEventListener("change", on);
-    return () => {
-      clearTimeout(t);
-      mq.removeEventListener("change", on);
-    };
-  }, []);
-  const hideIsDown = phone ? navHidden : collapsed;
+  // ---------- predogled: puščica skrije glavo (telefon in računalnik) ----------
   function toggleHide() {
-    if (phone) {
-      store("cc-nav-hidden", navHidden ? "0" : "1");
-      setNavHidden(!navHidden);
-    } else {
-      store("cc-pv-collapsed", collapsed ? "0" : "1");
-      setCollapsed(!collapsed);
-    }
+    store("cc-nav-hidden", navHidden ? "0" : "1");
+    setNavHidden(!navHidden);
   }
 
   // ---------- ročaj (iz claude.html) ----------
@@ -589,7 +570,7 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
   return (
     <div
       ref={rootRef}
-      className={`cc${navHidden && phone ? " nav-hidden" : ""}`}
+      className={`cc${navHidden ? " nav-hidden" : ""}`}
       style={{ ["--accent" as string]: accent, ["--accent2" as string]: accent2 }}
     >
       <header>
@@ -644,7 +625,7 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
         </a>
       </header>
 
-      <section id="pv" ref={pvRef} className={`${pvUrl ? "" : "off"}${collapsed && !phone ? " collapsed" : ""}`}>
+      <section id="pv" ref={pvRef} className={pvUrl ? "" : "off"}>
         <div className="pv-bar">
           <span className={`dot${pvUrl ? " on" : ""}${liveUrl ? " live" : ""}`}></span>
           <span className="pv-url">
@@ -664,14 +645,14 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
           <button
             type="button"
             className="ico"
-            title={phone ? (navHidden ? "Pokaži glavo" : "Skrij glavo") : collapsed ? "Pokaži predogled" : "Skrij predogled"}
+            title={navHidden ? "Pokaži glavo" : "Skrij glavo"}
             aria-label="Skrij"
             onClick={toggleHide}
           >
-            <Svg p={hideIsDown ? ICO_DOWN : ICO_UP} />
+            <Svg p={navHidden ? ICO_DOWN : ICO_UP} />
           </button>
         </div>
-        {pvUrl && ssoReady && !(collapsed && !phone) && (
+        {pvUrl && ssoReady && (
           <iframe key={frameKey} ref={frameRef} title="Predogled" src={pvUrl + (suiteApp ? sso?.hash ?? "" : "")} allow="clipboard-write" />
         )}
         <div className="pv-empty pv-off">

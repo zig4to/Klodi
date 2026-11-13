@@ -136,15 +136,16 @@
     box-shadow: 0 0 0 4px var(--bg), 0 0 0 6px color-mix(in srgb, var(--accent) 30%, transparent), 0 2px 14px color-mix(in srgb, var(--accent) 60%, transparent);
   }
   #pv.collapsed + #grip { display: none; }
+  /* puščica v vrstici predogleda skrije glavo (telefon in računalnik) */
+  &.nav-hidden header { display: none; }
+  /* brez glave predogled ne sme pod zarezo/statusno vrstico */
+  &.nav-hidden .pv-bar { padding-top: calc(4px + env(safe-area-inset-top)); }
   /* ko se drsnik spusti, predogled zdrsne na mesto */
   #pv.snap { transition: flex-basis .32s cubic-bezier(.22, .9, .3, 1); }
   /* telefon: drsnik čisto dol = viden samo še predogled in vrstica za prompt */
   @media (max-width: 899px) {
     &.chat-min #pv { flex: 1 1 auto; }
     &.chat-min #chat { display: none; }
-    &.nav-hidden header { display: none; }
-    /* brez glave predogled ne sme pod zarezo/statusno vrstico */
-    &.nav-hidden .pv-bar { padding-top: calc(4px + env(safe-area-inset-top)); }
     &.chat-min #pv.collapsed ~ #chat { display: flex; } /* predogled skrit: pogovor mora ostati */
     &.chat-closing #chat { padding-top: 0; padding-bottom: 0; overflow: hidden; }
   }
