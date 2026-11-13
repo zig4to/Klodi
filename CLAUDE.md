@@ -88,13 +88,40 @@ vpis tokena.
 `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`,
 `GITHUB_APP_CLIENT_SECRET`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_PRIVATE_KEY`.
 
-GitHub App „Klodi“ (račun zig4to, javna, da jo lahko namestijo drugi):
-- Setup URL: `$APP_URL/api/github/callback`, ☑ *Request user authorization
-  (OAuth) during installation*, ☑ *Redirect on update*.
+Produkcija: **https://klodi-ruby.vercel.app** (Vercel projekt `klodi`,
+`APP_URL` brez `/` na koncu). Vseh 10 spremenljivk je v Vercelu (Production);
+Sensitive so `SUPABASE_SERVICE_ROLE_KEY`, `GITHUB_APP_CLIENT_SECRET`,
+`GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_PRIVATE_KEY`. Vercel Authentication je
+izklopljen. Nove spremenljivke veljajo šele po Redeploy.
+
+GitHub App **„Klodi App“** (ime „Klodi“ je zasedeno), slug **`klodi-app`**,
+App ID `5735688`, račun zig4to, *Any account*
+(`github.com/settings/apps/klodi-app`):
+- Callback (Redirect) URI: `$APP_URL/api/github/callback`, ☑ *Request user
+  authorization (OAuth) during installation* (zato je Setup URL siv/prazen),
+  ☑ *Redirect on update*.
 - Webhook URL: `$APP_URL/api/github/webhook` + secret. Dogodki: *Workflow run*
   (installation dogodki pridejo sami).
 - Dovoljenja repozitorija: Actions RW, Contents RW, Workflows RW, Secrets R,
   Pull requests RW, Metadata R.
+- Client secret je na zavihku **Credentials** (ne General). Private key in
+  client secret GitHub pokaže samo enkrat.
+
+Secret `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) mora biti v **vsakem**
+repozitoriju posebej — osebni račun nima skupnih Actions secretov. Status v
+Nastavitvah se osveži šele ob kliku **Preveri** (`checkSecret`). Uporabnik ga
+doda sam (spletno ali `gh secret set … --body`), nikoli prek Klodija/pogovora.
+
+`cloud_repos.deploy_url` (polje „Predogled“) kaže **objavljeno** aplikacijo:
+sprememba je vidna šele po deployu (Vercel/Pages), ne v živo. Za zig4to
+repozitorije je naslov iz `TomsStudios/apps-registry.js`.
+
+Plošča Bitneverse (`TomsStudios/apps-registry.js`): kartica `id: "klodi"`,
+vidna uporabnikom z `app_access` `klodi` (dodeli v `admin.html`).
+
+Ideja (ni narejeno): živa seja — tek v Actions ostane prižgan, `npm run dev` +
+Cloudflare quick tunnel kot predogled (hot reload), čaka na naslednje prompte,
+na koncu commit; stane minute Actions, zagon 1–2 min, max 6 h.
 
 **Pred `git push` vedno vprašaj Žigo.**
 
