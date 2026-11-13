@@ -105,6 +105,26 @@
   .dot.starting { background: var(--wait); }
   .dot.live { animation: cc-live 1.6s ease-in-out infinite; }
   iframe { flex: 1; width: 100%; min-height: 0; border: 0; background: #fff; }
+  .pv-stage { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .pv-frame { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .pv-stage.dev { align-items: center; overflow: auto; background: color-mix(in srgb, var(--soft) 18%, var(--bg)); padding: 0; }
+  .pv-stage.dev .pv-frame { flex: none; overflow: hidden; box-shadow: 0 0 0 1px var(--border); }
+  .pv-stage.dev iframe { flex: none; max-width: none; }
+  .dev-bar {
+    display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap;
+    padding: 4px 8px; border-bottom: 1px solid var(--border); background: var(--bg);
+    font-size: 12px; color: var(--soft);
+  }
+  .dev-bar select, .dev-bar input {
+    font: 12px var(--mono); min-height: 28px; padding: 0 6px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--surface-solid); color: inherit;
+  }
+  .dev-bar input { width: 64px; }
+  .dev-bar button { min-height: 28px; }
+  .dev-bar button.ico { width: 28px; }
+  .pv-bar button.act { background: color-mix(in srgb, var(--soft) 25%, transparent); }
+  #pv.collapsed .dev-bar { display: none; }
+  #pv.off .pv-stage, #pv.off .dev-bar { display: none; }
   .pv-empty {
     flex: 1; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
     padding: 20px; text-align: center; color: var(--soft); font-size: 14px;

@@ -61,6 +61,16 @@ const ACTIVE = (r?: CloudRun) => !!r && (r.status === "queued" || r.status === "
 type Props = { repo: CloudRepo; title: string; userId: string };
 type Note = { after: string | null; text: string; err?: boolean };
 
+const DEVICES = [
+  { name: "iPhone SE", w: 375, h: 667 },
+  { name: "iPhone 14 Pro", w: 393, h: 852 },
+  { name: "Pixel 7", w: 412, h: 915 },
+  { name: "iPad Mini", w: 768, h: 1024 },
+  { name: "iPad Pro", w: 1024, h: 1366 },
+  { name: "Prenosnik", w: 1280, h: 800 },
+  { name: "Namizje", w: 1920, h: 1080 },
+];
+
 export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -77,6 +87,19 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
   const [navHidden, setNavHidden] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [frameKey, setFrameKey] = useState(0);
+  // naprava za testiranje (kot Chrome DevTools): null = odzivno (celoten prostor)
+  const [dev, setDev] = useState(false);
+  const [dim, setDim] = useState({ w: 390, h: 844 });
+  const [stageBox, setStageBox] = useState({ w: 0, h: 0 });
+  const roRef = useRef<ResizeObserver | null>(null);
+  const stageRef = useCallback((el: HTMLDivElement | null) => {
+    roRef.current?.disconnect();
+    roRef.current = null;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setStageBox({ w: el.clientWidth, h: el.clientHeight }));
+    ro.observe(el);
+    roRef.current = ro;
+  }, []);
   const [live, setLive] = useState<CloudSession | null>(null);
   const [sso, setSso] = useState<{ key: number; hash: string } | null>(null);
 
@@ -651,6 +674,16 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
             {liveUrl ? "živo · " : liveStatus === "starting" ? "zaganjam živo sejo · " : ""}
             {pvUrl.replace(/^https?:\/\//, "") || "brez predogleda"}
           </span>
+          <button
+            type="button"
+            className={`ico${dev ? " act" : ""}`}
+            title="Velikost zaslona (odzivni način)"
+            aria-label="Velikost zaslona"
+            aria-pressed={dev}
+            onClick={() => setDev(!dev)}
+          >
+            <Svg p='<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>' />
+          </button>
           <button type="button" className="ico" title="Osveži" aria-label="Osveži" onClick={() => setFrameKey((k) => k + 1)}>
             <Svg p='<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>' />
           </button>
@@ -671,8 +704,51 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
             <Svg p={hideIsDown ? ICO_DOWN : ICO_UP} />
           </button>
         </div>
+        {dev && pvUrl && (
+          <div className="dev-bar">
+            <span>Dimensions:</span>
+            <select
+              aria-label="Naprava"
+              value={DEVICES.find((d) => d.w === dim.w && d.h === dim.h)?.name ?? ""}
+              onChange={(e) => {
+                const d = DEVICES.find((x) => x.name === e.target.value);
+                if (d) setDim({ w: d.w, h: d.h });
+              }}
+            >
+              <option value="" disabled>Po meri</option>
+              {DEVICES.map((d) => <option key={d.name} value={d.name}>{d.name} ({d.w}×{d.h})</option>)}
+            </select>
+            <input
+              type="number" min={200} max={4000} aria-label="Širina" value={dim.w}
+              onChange={(e) => setDim({ ...dim, w: Math.max(1, Number(e.target.value) || 0) })}
+            />
+            <span>×</span>
+            <input
+              type="number" min={200} max={4000} aria-label="Višina" value={dim.h}
+              onChange={(e) => setDim({ ...dim, h: Math.max(1, Number(e.target.value) || 0) })}
+            />
+            <button type="button" className="ico" title="Obrni" aria-label="Obrni" onClick={() => setDim({ w: dim.h, h: dim.w })}>
+              <Svg p='<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/>' />
+            </button>
+            <span className="dev-zoom">
+              {Math.round(Math.min(1, stageBox.w / dim.w || 1, stageBox.h / dim.h || 1) * 100)} %
+            </span>
+          </div>
+        )}
         {pvUrl && ssoReady && !(collapsed && !phone) && (
-          <iframe key={frameKey} ref={frameRef} title="Predogled" src={pvUrl + (suiteApp ? sso?.hash ?? "" : "")} allow="clipboard-write" />
+          <div ref={stageRef} className={`pv-stage${dev ? " dev" : ""}`}>
+            {(() => {
+              const scale = dev ? Math.min(1, stageBox.w / dim.w || 1, stageBox.h / dim.h || 1) : 1;
+              const style = dev
+                ? { width: dim.w, height: dim.h, transform: `scale(${scale})`, transformOrigin: "top left" }
+                : undefined;
+              return (
+                <div className="pv-frame" style={dev ? { width: dim.w * scale, height: dim.h * scale } : undefined}>
+                  <iframe key={frameKey} ref={frameRef} title="Predogled" style={style} src={pvUrl + (suiteApp ? sso?.hash ?? "" : "")} allow="clipboard-write" />
+                </div>
+              );
+            })()}
+          </div>
         )}
         <div className="pv-empty pv-off">
           <span>
