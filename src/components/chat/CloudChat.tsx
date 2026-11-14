@@ -213,13 +213,13 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
     return () => clearTimeout(t);
   }, [liveCold, lastLiveDone]);
 
-  // Živi predogled je iframe na drugi strani (trycloudflare.com): aplikaciji iz
-  // zbirke (isti Supabase) podamo prijavo kot hub — #sb_at=…&sb_rt=… —, da se
-  // v okvirju prijavi sama (runnerjev proxy piškotke naredi uporabne v iframu).
-  // Samo živi seji: objavljena aplikacija (deploy_url) piškotkov v tujem iframu
-  // ne more shraniti in bi ostala na „Prijavljanje …“. Žetona sveža ob vsakem
-  // nalaganju okvirja in ob novem naslovu predogleda.
-  const suiteApp = inSuite(repo.full_name) && !!liveUrl;
+  // Predogled je iframe na drugi strani (vercel.app, github.io, trycloudflare.com):
+  // aplikaciji iz zbirke (isti Supabase) podamo prijavo kot hub — #sb_at=…&sb_rt=… —,
+  // da se v okvirju prijavi sama. Piškotke v iframu omogočata: v živi seji
+  // runnerjev proxy, v objavljenih Next aplikacijah SameSite=None
+  // (cookie-options.ts); statične aplikacije imajo sejo v localStorage.
+  // Žetona sveža ob vsakem nalaganju okvirja in ob novem naslovu predogleda.
+  const suiteApp = inSuite(repo.full_name);
   const ssoKey = frameKey + "|" + liveUrl;
   useEffect(() => {
     if (!suiteApp) return;
