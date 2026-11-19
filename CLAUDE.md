@@ -171,7 +171,7 @@ minute Actions (zasebni repo), zagon 1–2 min, max ~6 h.
 |---|---|---|
 | `0001_init` | `cloud_installations`, `cloud_repos`, `cloud_threads`, `cloud_runs`, `cloud_events`, RLS, Realtime | izvedena 2026-11-12 (`cloud_init` + `cloud_runs_hide_token` + `cloud_access_klodi`) |
 | `0002_live` | `cloud_sessions` (živa seja), `cloud_runs.session_id`, RLS, stolpčni grant brez `token_hash`, Realtime | izvedena 2026-11-13 (`cloud_live_sessions`) |
-| `0003_migrations` | `cloud_migrations`, `cloud_repos.db_secrets`, RLS, stolpčni grant brez `token_hash`, Realtime | **še ni izvedena** |
+| `0003_migrations` | `cloud_migrations`, `cloud_repos.db_secrets`, RLS, stolpčni grant brez `token_hash`, Realtime | izvedena 2026-11-19 (`cloud_migrations`) |
 
 `src/lib/types/database.types.ts` je ročno napisan — ob novi migraciji ga posodobi.
 
