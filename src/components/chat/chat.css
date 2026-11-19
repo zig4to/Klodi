@@ -80,6 +80,8 @@
   .title span { display: flex; align-items: center; gap: 4px; font: 11.5px var(--mono); color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .title span svg { width: 12px; height: 12px; }
   #auto[aria-pressed="true"], #live[aria-pressed="true"] { border-color: var(--accent-fg, var(--accent)); color: var(--accent-fg, var(--accent)); background: color-mix(in srgb, var(--accent-fg, var(--accent)) 14%, transparent); }
+  /* med živo sejo je gumb onemogočen (konec je na Push), a mora ostati živ kot strela */
+  #live[aria-pressed="true"]:disabled { opacity: 1; }
   #push.ready { border-color: transparent; background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
 
   /* ---------- predogled ---------- */
