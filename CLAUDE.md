@@ -173,6 +173,10 @@ minute Actions (zasebni repo), zagon 1–2 min, max ~6 h.
 | `0002_live` | `cloud_sessions` (živa seja), `cloud_runs.session_id`, RLS, stolpčni grant brez `token_hash`, Realtime | izvedena 2026-11-13 (`cloud_live_sessions`) |
 | `0003_migrations` | `cloud_migrations`, `cloud_repos.db_secrets`, RLS, stolpčni grant brez `token_hash`, Realtime | izvedena 2026-11-19 (`cloud_migrations`) |
 
+Vloga `klodi_ro` (za `SUPABASE_DB_URL_RO`) je ustvarjena 2026-11-19 (`klodi_ro_role`): login, brez
+članstev in pravic, `default_transaction_read_only`, `statement_timeout 15s`, največ 5 povezav.
+Geslo nastavi Žiga sam (`alter role klodi_ro password …` v SQL Editorju), nikoli prek pogovora.
+
 `src/lib/types/database.types.ts` je ročno napisan — ob novi migraciji ga posodobi.
 
 ## Pasti
