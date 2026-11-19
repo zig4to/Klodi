@@ -7,6 +7,8 @@ const ALLOWED = [
   "Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git show*)",
   "Bash(git add*)", "Bash(git commit*)", "Bash(git restore*)", "Bash(git branch*)",
   "Bash(ls*)", "Bash(cat *)", "Bash(mkdir *)", "Bash(curl *)", "WebFetch", "WebSearch",
+  // SUPABASE_DB_URL_RO: vloga brez pravic (samo shema) — omejitev je v bazi, ne tu
+  "Bash(psql *)",
 ];
 // Samodejno: vsi ukazi in splet brez vprašanja, razen DANGER
 const AUTO = [
@@ -42,6 +44,22 @@ export function claudeArgs(opts: { plan: boolean; auto: boolean; allowed: string
     "--allowedTools", ...tools,
     "--disallowedTools", ...DENIED,
   ];
+}
+
+/** Mapa, iz katere job „objavi“ pobere migracije za kartico v Klodiju. */
+export const MIGRATIONS_DIR = "supabase/migrations/";
+
+/** Dodatno sistemsko navodilo (--append-system-prompt): kako Claude spreminja bazo. */
+export function systemPrompt(repo: { db_secrets?: string[] | null }): string {
+  const s = repo.db_secrets || [];
+  return [
+    "Spremembe baze (Supabase/Postgres): nikoli jih ne izvajaj sam.",
+    `Napiši novo datoteko ${MIGRATIONS_DIR}<YYYYMMDDHHMMSS>_<kratko_ime>.sql (idempotentno: if not exists, brez BEGIN/COMMIT — izvede se v eni transakciji) in po potrebi posodobi tipe v kodi.`,
+    "Po objavi uporabnik SQL pregleda in migracijo izvede s klikom v Klodiju; v odgovoru na kratko povej, kaj migracija naredi.",
+    s.includes("SUPABASE_DB_URL_RO")
+      ? `Shemo trenutne baze lahko bereš: psql "$SUPABASE_DB_URL_RO" -c '\\d ime_tabele' (vloga samo za branje sheme, podatkov ne vidi).`
+      : "",
+  ].filter(Boolean).join(" ");
 }
 
 /** Pravilo za gumb Dovoli. */

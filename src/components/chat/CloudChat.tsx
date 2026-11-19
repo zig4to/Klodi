@@ -4,7 +4,7 @@ import "./chat.css";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import type { ChatItem, CloudEvent, CloudRepo, CloudRun, CloudSession, CloudThread, RunResult } from "@/lib/types/database.types";
+import type { ChatItem, CloudEvent, CloudMigration, CloudRepo, CloudRun, CloudSession, CloudThread, MigrationStatus, RunResult } from "@/lib/types/database.types";
 import { esc, md } from "./md";
 import { accentFg, iconSvg, inSuite, repoStyle } from "@/lib/suite";
 
@@ -51,6 +51,15 @@ const DEVICES: { id: string; name: string; w: number; h: number }[] = [
 // Lucide radio — živa seja
 const ICO_LIVE = '<path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/>';
 const SESSION_COLS = "id,user_id,repo_id,thread_id,status,preview_url,preview_hot,gh_run_id,gh_run_url,commit_sha,commit_url,pr_url,error,last_activity_at,created_at,ended_at";
+// Lucide arrow-up-from-line — push (objava žive seje)
+const ICO_PUSH = '<path d="m18 9-6-6-6 6"/><path d="M12 3v14"/><path d="M5 21h14"/>';
+// Lucide database — migracija baze
+const ICO_DB = '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/>';
+const MIG_COLS = "id,user_id,repo_id,thread_id,run_id,session_id,files,status,commit_sha,pr_url,gh_run_id,gh_run_url,output,error,created_at,finished_at";
+const MIG_LABEL: Record<MigrationStatus, string> = {
+  pending: "čaka na potrditev", queued: "v vrsti", running: "izvajam …", done: "izvedena", error: "napaka", rejected: "zavrnjena",
+};
+const MIG_OPEN = (m: CloudMigration) => m.status === "pending" || m.status === "error" || m.status === "queued" || m.status === "running";
 const OPEN = (s?: CloudSession | null) => !!s && (s.status === "starting" || s.status === "ready" || s.status === "ending");
 
 function Svg({ p, className = "i", id }: { p: string; className?: string; id?: string }) {
@@ -94,6 +103,8 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
   const [frameKey, setFrameKey] = useState(0);
   const [live, setLive] = useState<CloudSession | null>(null);
   const [sso, setSso] = useState<{ key: string; hash: string } | null>(null);
+  const [migs, setMigs] = useState<CloudMigration[]>([]);
+  const [migBusy, setMigBusy] = useState<string | null>(null);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const chatRef = useRef<HTMLElement>(null);
@@ -131,6 +142,9 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
     const { data: ss } = await supabase.from("cloud_sessions").select(SESSION_COLS).eq("repo_id", repo.id)
       .order("created_at", { ascending: false }).limit(1).maybeSingle();
     setLive((ss as CloudSession | null) ?? null);
+    const { data: ms } = await supabase.from("cloud_migrations").select(MIG_COLS).eq("repo_id", repo.id)
+      .order("created_at", { ascending: false }).limit(20);
+    setMigs(((ms || []) as CloudMigration[]).reverse());
     const ev: Record<string, CloudEvent[]> = {};
     if (rs.length) {
       const { data } = await supabase.from("cloud_events").select("*").in("run_id", rs.map((r) => r.id))
@@ -171,6 +185,11 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
         if (s?.repo_id !== repo.id) return;
         setLive((cur) => (!cur || cur.id === s.id || Date.parse(s.created_at) >= Date.parse(cur.created_at) ? { ...cur, ...s } : cur));
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "cloud_migrations", filter: `user_id=eq.${userId}` }, (p) => {
+        const m = p.new as CloudMigration;
+        if (m?.repo_id !== repo.id) return;
+        setMigs((cur) => (cur.some((x) => x.id === m.id) ? cur.map((x) => (x.id === m.id ? { ...x, ...m } : x)) : [...cur, m]));
+      })
       .subscribe();
     const onVis = () => document.visibilityState === "visible" && load();
     document.addEventListener("visibilitychange", onVis);
@@ -189,7 +208,8 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
   const liveUrl = liveStatus === "ready" || liveStatus === "ending" ? live!.preview_url || "" : "";
 
   // rezerva, če Realtime zamudi: med tekom (in med zagonom/koncem žive seje) preveri vsakih 8 s
-  const polling = running || liveStatus === "starting" || liveStatus === "ending";
+  const migRunning = migs.some((m) => m.status === "queued" || m.status === "running");
+  const polling = running || migRunning || liveStatus === "starting" || liveStatus === "ending";
   useEffect(() => {
     if (!polling) return;
     const t = setInterval(load, 8000);
@@ -463,15 +483,24 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
     }
   }
 
+  // Živo samo zažene (med zagonom: prekliči); konec in objava sta na gumbu Push
   async function toggleLive() {
     try {
-      if (liveOpen) {
+      if (liveStatus === "starting") {
         await call("/api/live", { op: "end" });
-        note(liveStatus === "starting" ? "Živa seja preklicana." : "Končujem živo sejo: spremembe gredo " + (repo.mode === "pr" ? "v pull request." : "v " + repo.default_branch + "."));
-      } else {
+        note("Živa seja preklicana.");
+      } else if (!liveOpen) {
         await call("/api/live", { op: "start" });
-        note("Zaganjam živo sejo (1–2 min). Prompte lahko pišeš že zdaj; spremembe se objavijo, ko klikneš Končaj ali po 20 min brez dela.");
+        note("Zaganjam živo sejo (1–2 min). Prompte lahko pišeš že zdaj; spremembe se objavijo, ko klikneš Push ali po 20 min brez dela.");
       }
+    } catch {}
+  }
+
+  // Push: isto kot konec žive seje — job „objavi“ commita in pushne vse spremembe seje
+  async function pushLive() {
+    try {
+      await call("/api/live", { op: "end" });
+      note("Push: končujem živo sejo, spremembe gredo " + (repo.mode === "pr" ? "v pull request." : "v " + repo.default_branch + "."));
     } catch {}
   }
 
@@ -580,6 +609,67 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
     return s.length ? <div className="meta">{s.join(" · ")}</div> : null;
   }
 
+  // ---------- migracije baze ----------
+  const hasDb = (repo.db_secrets || []).includes("SUPABASE_DB_URL");
+  async function migAct(m: CloudMigration, op: "run" | "reject") {
+    setMigBusy(m.id);
+    try {
+      await call("/api/migrate", { migration_id: m.id, op });
+      if (op === "run") note("Migracija je v vrsti: izvede jo job „migriraj“ v GitHub Actions (svež stroj, secret SUPABASE_DB_URL).");
+    } catch {
+    } finally {
+      setMigBusy(null);
+    }
+  }
+
+  function renderMig(m: CloudMigration) {
+    const actionable = m.status === "pending" || m.status === "error";
+    const big = m.files.some((f) => f.big);
+    return (
+      <div className={`mig ${m.status}`} key={"m" + m.id}>
+        <div className="mig-h">
+          <Svg p={ICO_DB} />
+          Migracija baze
+          <span className="mig-st">{MIG_LABEL[m.status]}</span>
+        </div>
+        {m.files.map((f) => (
+          <details key={f.path} open={actionable && m.files.length === 1 && f.sql.length < 4000}>
+            <summary>
+              <code>{f.path}</code>
+              {f.changed && <span className="meta"> · spremenjena datoteka</span>}
+              {f.big && <span className="meta"> · prevelika (&gt; 120 KB)</span>}
+            </summary>
+            <pre>{f.sql}</pre>
+          </details>
+        ))}
+        {actionable && m.pr_url && (
+          <div className="meta">
+            Izvede se iz {repo.default_branch}: najprej združi <a href={m.pr_url} target="_blank" rel="noopener">pull request</a>.
+          </div>
+        )}
+        {actionable && !hasDb && (
+          <div className="meta">
+            V repozitoriju manjka secret SUPABASE_DB_URL —{" "}
+            <a href="/nastavitve#baza" onClick={(e) => { e.preventDefault(); router.push("/nastavitve#baza"); }}>Nastavitve</a>.
+          </div>
+        )}
+        {m.error && <div className="err">{m.error}</div>}
+        {m.status === "done" && m.output && <pre className="mig-out">{m.output}</pre>}
+        {actionable && (
+          <div className="row">
+            <button type="button" className="go" disabled={!!migBusy || big} onClick={() => migAct(m, "run")}>
+              {migBusy === m.id ? "Pošiljam …" : m.status === "error" ? "Poskusi znova" : "Izvedi migracijo"}
+            </button>
+            <button type="button" disabled={!!migBusy} onClick={() => migAct(m, "reject")}>Zavrni</button>
+          </div>
+        )}
+        {m.gh_run_url && (
+          <span className="meta"><a href={m.gh_run_url} target="_blank" rel="noopener">Actions</a></span>
+        )}
+      </div>
+    );
+  }
+
   const notesAfter = (id: string | null) =>
     notes.filter((n) => n.after === id).map((n, i) => (
       <div key={"n" + id + i} className={n.err ? "err" : "meta"} dangerouslySetInnerHTML={{ __html: esc(n.text) }} />
@@ -623,10 +713,14 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
               <span className="meta">ali napiši popravke in pošlji znova</span>
             </div>
           )}
+          {migs.filter((m) => m.run_id === run.id).map(renderMig)}
           {notesAfter(run.id)}
         </Fragment>,
       );
     });
+    // odprte migracije, katerih tek ni med naloženimi (starejši pogovori)
+    const shown = new Set(runs.map((r) => r.id));
+    out.push(...migs.filter((m) => !(m.run_id && shown.has(m.run_id)) && MIG_OPEN(m)).map(renderMig));
     if (lastRun && !openThread && !ACTIVE(lastRun)) out.push(<div className="divider" key="dnew">Nov pogovor</div>);
     if (liveOpen && live!.error) out.push(<div className="err" key="live-err">{live!.error}</div>);
     const waitText = running
@@ -693,16 +787,28 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
           title={
             liveStatus === "starting" ? "Živa seja se zaganja (klik: prekliči)"
             : liveStatus === "ending" ? "Živa seja se zaključuje"
-            : liveOpen ? "Živa seja: predogled v živo (klik: končaj in objavi)"
-            : "Začni živo sejo: dev strežnik v Actions, predogled v živo, objava na koncu"
+            : liveOpen ? "Živa seja teče: predogled v živo (konec in objava: Push)"
+            : "Začni živo sejo: dev strežnik v Actions, predogled v živo, objava s Push"
           }
-          disabled={!ready || liveStatus === "ending" || (liveOpen && running && liveStatus !== "starting")}
+          disabled={!ready || (liveOpen && liveStatus !== "starting")}
           onClick={toggleLive}
         >
           <Svg p={ICO_LIVE} />
         </button>
-        <button type="button" className="ico" title="Nov pogovor" aria-label="Nov pogovor" disabled={running || liveOpen} onClick={() => call("/api/new").catch(() => {})}>
-          <Svg p='<path d="M5 12h14"/><path d="M12 5v14"/>' />
+        <button
+          type="button"
+          className="ico"
+          id="push"
+          title={
+            liveStatus === "ending" ? "Objavljam spremembe seje …"
+            : liveStatus === "ready" ? `Push: končaj živo sejo in objavi spremembe ${repo.mode === "pr" ? "v pull request" : "v " + repo.default_branch}`
+            : "Push: samo v živi seji (sicer Klodi objavi po vsakem teku sam)"
+          }
+          aria-label="Push"
+          disabled={liveStatus !== "ready" || running}
+          onClick={pushLive}
+        >
+          <Svg p={ICO_PUSH} />
         </button>
         <a href={`https://github.com/${repo.full_name}${lastRun?.commit_url ? "/commits/" + repo.default_branch : ""}`} target="_blank" rel="noopener">
           <button type="button" className="ico" title="Odpri na GitHubu" aria-label="Odpri na GitHubu">

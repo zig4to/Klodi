@@ -41,6 +41,8 @@ export type CloudRepo = {
   icon: string | null;
   workflow_installed_at: string | null;
   secret_name: string | null;
+  /** Supabase secreti v repozitoriju (SUPABASE_DB_URL, SUPABASE_DB_URL_RO). */
+  db_secrets: string[];
   created_at: string;
 };
 
@@ -97,6 +99,31 @@ export type CloudSession = {
   ended_at: string | null;
 };
 
+export type MigrationStatus = "pending" | "queued" | "running" | "done" | "error" | "rejected";
+/** changed: datoteka je obstajala in je spremenjena; big: prevelika (> 120 KB), ni izvedljiva. */
+export type MigrationFile = { path: string; sql: string; changed?: boolean; big?: boolean };
+
+/** Migracija baze iz teka: Claude jo napiše, uporabnik jo izvede s klikom (job „migriraj“). */
+export type CloudMigration = {
+  id: string;
+  user_id: string;
+  repo_id: string;
+  thread_id: string;
+  run_id: string | null;
+  session_id: string | null;
+  files: MigrationFile[];
+  status: MigrationStatus;
+  commit_sha: string | null;
+  pr_url: string | null;
+  token_hash: string | null;
+  gh_run_id: number | null;
+  gh_run_url: string | null;
+  output: string | null;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+};
+
 export type CloudEvent = {
   id: number;
   run_id: string;
@@ -115,6 +142,7 @@ export type Database = {
       cloud_runs: Table<CloudRun, "user_id" | "thread_id" | "prompt" | "token_hash">;
       cloud_events: Table<CloudEvent, "run_id" | "user_id" | "seq" | "item">;
       cloud_sessions: Table<CloudSession, "user_id" | "repo_id" | "thread_id" | "token_hash">;
+      cloud_migrations: Table<CloudMigration, "user_id" | "repo_id" | "thread_id" | "files">;
     };
     Views: Record<string, never>;
     Functions: {

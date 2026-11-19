@@ -1,5 +1,5 @@
 import { admin } from "@/lib/supabase/admin";
-import { body, route, runnerRun } from "@/lib/cloud";
+import { body, route, runnerRun, saveMigrations } from "@/lib/cloud";
 import type { ChatItem, RunResult } from "@/lib/types/database.types";
 
 type Finish = {
@@ -11,6 +11,7 @@ type Finish = {
   commit_url?: string;
   pr_url?: string;
   error?: string;
+  migrations?: unknown; // v4: nove/spremenjene supabase/migrations/*.sql v objavi
 };
 
 // Runner na koncu: rezultat, commit ali PR.
@@ -28,6 +29,11 @@ export const POST = route(async (req: Request) => {
       .order("seq", { ascending: false }).limit(1).maybeSingle();
     let seq = (last?.seq ?? -1) + 1;
     await db.from("cloud_events").insert(extra.map((item) => ({ run_id: run.id, user_id: run.user_id, seq: seq++, item })));
+  }
+  // pred statusom teka: UI ob koncu teka prebere tudi kartico migracije
+  if (b.status !== "error" && (b.commit_sha || b.pr_url) && b.migrations) {
+    const { data: thread } = await db.from("cloud_threads").select("repo_id").eq("id", run.thread_id).single();
+    await saveMigrations({ user_id: run.user_id, repo_id: thread!.repo_id, thread_id: run.thread_id, run_id: run.id }, b.migrations, b);
   }
   if (b.session_id) await db.from("cloud_threads").update({ session_id: b.session_id }).eq("id", run.thread_id);
   await db.from("cloud_runs").update({

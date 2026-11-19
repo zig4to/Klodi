@@ -1,5 +1,5 @@
 import { admin } from "@/lib/supabase/admin";
-import { gh, GitHubError, SECRET_NAMES, WORKFLOW_PATH } from "@/lib/github";
+import { DB_RO_SECRET, DB_SECRET, gh, GitHubError, SECRET_NAMES, WORKFLOW_PATH } from "@/lib/github";
 import { workflowYaml } from "@/lib/workflow";
 import type { CloudRepo } from "@/lib/types/database.types";
 
@@ -38,6 +38,9 @@ export async function checkSecret(repo: CloudRepo): Promise<string | null> {
   const r = await api<{ secrets: { name: string }[] }>("GET", `/repos/${repo.full_name}/actions/secrets?per_page=100`);
   const names = new Set(r.secrets.map((s) => s.name));
   const found = SECRET_NAMES.find((n) => names.has(n)) ?? null;
-  await admin().from("cloud_repos").update({ secret_name: found }).eq("id", repo.id);
+  const db = [DB_SECRET, DB_RO_SECRET].filter((n) => names.has(n));
+  await admin().from("cloud_repos").update({ secret_name: found, db_secrets: db }).eq("id", repo.id);
+  repo.secret_name = found;
+  repo.db_secrets = db;
   return found;
 }

@@ -127,3 +127,6 @@ export function appInstallUrl(state: string): string {
 
 export const WORKFLOW_PATH = ".github/workflows/klodi.yml";
 export const SECRET_NAMES = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"] as const;
+/** SUPABASE_DB_URL: samo job „migriraj“. SUPABASE_DB_URL_RO: Claude (vloga samo za branje sheme). */
+export const DB_SECRET = "SUPABASE_DB_URL";
+export const DB_RO_SECRET = "SUPABASE_DB_URL_RO";

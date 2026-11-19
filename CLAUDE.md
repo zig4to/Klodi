@@ -7,11 +7,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Klodi** = Claude Code v oblaku nad GitHub repozitoriji uporabnikov Bitneverse — deluje
 brez prižganega računalnika. Videz in funkcije so iz **Live Claude**
 (`zaganjalnik/claude.html` + `claude.js`): predogled + pogovor, ročaj,
-Načrt / Izvedi načrt, Samodejno, Dovoli/Zavrni, Nov pogovor, Ustavi. Razlika:
+Načrt / Izvedi načrt, Samodejno, Dovoli/Zavrni, Push, Ustavi. Razlika:
 Claude teče v **GitHub Actions v repozitoriju uporabnika** (njegove minute,
 njegova naročnina ali API ključ), dogodki pridejo prek Supabase Realtime,
 spremembe gredo po koncu teka direktno v privzeto vejo ali v PR (nastavitev
-repozitorija). Gumba Push ni.
+repozitorija). Gumb **Push** (na mestu nekdanjega Nov pogovor) deluje samo v živi seji:
+konča sejo in objavi (`/api/live` op `end`); gumb Živo sejo samo zažene (med zagonom prekliče).
+`/api/new` ostaja, gumba zanj ni.
 
 Ogrodje je kopija **Kviza** (prijava, SSO iz huba Bitneverse, tema, PWA).
 Isti Supabase projekt **ProjektiBaze** (`abjnxhfxjolwwxlckkje`), tabele
@@ -83,11 +85,24 @@ vpis tokena.
    `/api/runner/session` op `preview` → zanka op `next` (vsake 3 s) → za vsak
    prompt nov `claude -p --resume` + `--append-system-prompt` o dev strežniku.
    Prompti v seji ne naredijo dispatcha (`startRun` jih samo postavi v vrsto).
-   Konec: Končaj (status `ending`), 20 min brez dela ali 340 min → job
+   Konec: Push (status `ending`), 20 min brez dela ali 340 min → job
    „objavi“ commita vse naenkrat → op `finish`. Ustavi v seji ustavi le
    trenutni prompt. Aplikacijam iz zbirke `CloudChat` poda prijavo kot hub (`#sb_at=…&sb_rt=…` v src okvirja). Runner poda javna
    `NEXT_PUBLIC_SUPABASE_URL/ANON_KEY`. Next aplikacije rabijo
    `**.trycloudflare.com` v `allowedDevOrigins`, sicer HMR/JS ne deluje.
+8. **Migracije baze** (workflow v4, vedno samo po kliku): Claude migracijo samo napiše
+   (`supabase/migrations/*.sql`, navodilo `systemPrompt` v `rules.ts` prek
+   `--append-system-prompt`). Job „objavi“ (`changedMigrations`) javi nove/spremenjene datoteke
+   ob finish → `cloud_migrations` (pending) → kartica „Migracija baze“ v `CloudChat` s SQL.
+   Izvedi migracijo (`/api/migrate` op `run`; v načinu PR šele, ko je PR združen; starejše
+   odprte najprej) → dispatch z vhodom `migrate=1` → job `migriraj` (svež stroj, brez Clauda,
+   edini s secretom `SUPABASE_DB_URL`): `bridge.mjs migrate` vzame potrjen SQL z
+   `/api/runner/migration`, preveri, da je enak datoteki v privzeti veji, in ga pošlje kot en niz
+   `psql -c` (ena transakcija + zapis v `supabase_migrations.schema_migrations`; psql ga ne
+   razčlenjuje, zato `\!` ne deluje; max 120 KB). Claude dobi kvečjemu `SUPABASE_DB_URL_RO`
+   (vloga `klodi_ro` brez pravic: samo shema iz pg_catalog), `Bash(psql *)` je v ALLOWED.
+   Imena secretov v `cloud_repos.db_secrets` (`checkSecret`). Pooler niz (Session), ker
+   Actions nima IPv6.
 
 ## Varnost
 
@@ -156,6 +171,7 @@ minute Actions (zasebni repo), zagon 1–2 min, max ~6 h.
 |---|---|---|
 | `0001_init` | `cloud_installations`, `cloud_repos`, `cloud_threads`, `cloud_runs`, `cloud_events`, RLS, Realtime | izvedena 2026-11-12 (`cloud_init` + `cloud_runs_hide_token` + `cloud_access_klodi`) |
 | `0002_live` | `cloud_sessions` (živa seja), `cloud_runs.session_id`, RLS, stolpčni grant brez `token_hash`, Realtime | izvedena 2026-11-13 (`cloud_live_sessions`) |
+| `0003_migrations` | `cloud_migrations`, `cloud_repos.db_secrets`, RLS, stolpčni grant brez `token_hash`, Realtime | **še ni izvedena** |
 
 `src/lib/types/database.types.ts` je ročno napisan — ob novi migraciji ga posodobi.
 

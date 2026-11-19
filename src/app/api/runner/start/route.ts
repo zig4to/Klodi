@@ -1,6 +1,6 @@
 import { admin } from "@/lib/supabase/admin";
 import { body, route, runnerRun } from "@/lib/cloud";
-import { claudeArgs } from "@/lib/rules";
+import { claudeArgs, systemPrompt } from "@/lib/rules";
 
 // Runner ob zagonu: dobi prompt in argumente za `claude` (ne gredo skozi vhode workflowa).
 export const POST = route(async (req: Request) => {
@@ -18,6 +18,7 @@ export const POST = route(async (req: Request) => {
     prompt: run.prompt,
     args: claudeArgs({ plan: run.plan, auto: repo!.auto, allowed: thread!.allowed }),
     resume: thread!.session_id,
+    system: systemPrompt(repo!),
     mode: run.plan ? "plan" : repo!.mode,
     branch: repo!.default_branch,
   };

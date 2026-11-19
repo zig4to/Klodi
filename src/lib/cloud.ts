@@ -5,7 +5,7 @@ import { getAuthUser, type AuthUser } from "@/lib/supabase/auth";
 import { admin } from "@/lib/supabase/admin";
 import { gh, GitHubError, WORKFLOW_PATH } from "@/lib/github";
 import { installWorkflow } from "@/lib/repos";
-import type { ChatItem, CloudRepo, CloudRun, CloudSession, CloudThread, SessionStatus } from "@/lib/types/database.types";
+import type { ChatItem, CloudMigration, CloudRepo, CloudRun, CloudSession, CloudThread, MigrationFile, SessionStatus } from "@/lib/types/database.types";
 
 export const APP_ID = "klodi";
 
@@ -174,5 +174,40 @@ export async function runnerRun(req: Request, runId: string): Promise<CloudRun> 
   const { data } = await admin().from("cloud_runs").select("*").eq("id", runId).maybeSingle();
   if (!data || data.token_hash !== hashToken(token)) throw new HttpError(401, "Žeton ni veljaven.");
   if (data.status !== "queued" && data.status !== "running") throw new HttpError(410, "Tek je končan ali preklican.");
+  return data;
+}
+
+// ---------- migracije baze (workflow v4) ----------
+
+const MIG_PATH = /^supabase\/migrations\/[\w.-]+(?:\/[\w.-]+)*\.sql$/;
+
+/** Job „objavi“ je javil migracije v objavljenem patchu: kartica „Migracija baze“ (status pending). */
+export async function saveMigrations(
+  at: { user_id: string; repo_id: string; thread_id: string; run_id: string | null; session_id?: string | null },
+  raw: unknown,
+  pub: { commit_sha?: string | null; pr_url?: string | null },
+): Promise<void> {
+  if (!Array.isArray(raw) || !raw.length) return;
+  const files: MigrationFile[] = [];
+  for (const f of raw.slice(0, 20) as Record<string, unknown>[]) {
+    const path = String(f?.path || "");
+    if (!MIG_PATH.test(path) || path.includes("..") || typeof f.sql !== "string") continue;
+    files.push({ path, sql: f.sql.slice(0, 120_000), changed: !!f.changed, ...(f.big ? { big: true } : {}) });
+  }
+  if (!files.length) return;
+  const { error } = await admin().from("cloud_migrations").insert({
+    ...at, session_id: at.session_id ?? null, files,
+    commit_sha: pub.commit_sha ?? null, pr_url: pub.pr_url ?? null,
+  });
+  if (error) console.error("migrations:", error);
+}
+
+/** Runner joba „migriraj“: preveri enkratni žeton migracije. */
+export async function runnerMigration(req: Request, id: string): Promise<CloudMigration> {
+  const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!token || !id) throw new HttpError(401, "Žeton ni veljaven.");
+  const { data } = await admin().from("cloud_migrations").select("*").eq("id", id).maybeSingle();
+  if (!data || !data.token_hash || data.token_hash !== hashToken(token)) throw new HttpError(401, "Žeton ni veljaven.");
+  if (data.status !== "queued" && data.status !== "running") throw new HttpError(410, "Migracija ni v teku.");
   return data;
 }

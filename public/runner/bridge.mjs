@@ -6,6 +6,7 @@
 //   node bridge.mjs pack     — (v3, job claude) spremembe kot patch za job „objavi“
 //   node bridge.mjs publish  — (v3, job objavi, svež stroj) patch → commit → push/PR, javi rezultat
 //   node bridge.mjs finish   — (v2) commit + push na istem stroju kot Claude
+//   node bridge.mjs migrate  — (v4, job migriraj, svež stroj) potrjena migracija → psql (SUPABASE_DB_URL)
 // Brez odvisnosti. Okolje: CC_API, CC_RUN, CC_TOKEN (+ GH_TOKEN, GITHUB_REPOSITORY samo pri finish).
 import { spawn, execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync, createWriteStream, chmodSync, statSync, createReadStream, mkdirSync } from "node:fs";
@@ -54,9 +55,11 @@ function describe(input) {
 /** Okolje brez žetonov Klodija/GitHuba (za Clauda); `noClaude` odstrani še Claude poverilnice (dev strežnik). */
 function cleanEnv(noClaude = false) {
   const env = { ...process.env };
-  for (const k of ["CC_TOKEN", "GH_TOKEN", "GITHUB_TOKEN", "ACTIONS_RUNTIME_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_RESULTS_URL", "ACTIONS_CACHE_URL"]) delete env[k];
+  for (const k of ["CC_TOKEN", "GH_TOKEN", "GITHUB_TOKEN", "ACTIONS_RUNTIME_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_RESULTS_URL", "ACTIONS_CACHE_URL", "SUPABASE_DB_URL"]) delete env[k];
   if (!env.CLAUDE_CODE_OAUTH_TOKEN || noClaude) delete env.CLAUDE_CODE_OAUTH_TOKEN;
   if (!env.ANTHROPIC_API_KEY || noClaude) delete env.ANTHROPIC_API_KEY;
+  // vloga samo za branje sheme: Claude jo sme, dev strežnik ne
+  if (!env.SUPABASE_DB_URL_RO || noClaude) delete env.SUPABASE_DB_URL_RO;
   if (noClaude) for (const k of ["CC_API", "CC_RUN", "CC_LIVE"]) delete env[k];
   return env;
 }
@@ -65,8 +68,10 @@ function cleanEnv(noClaude = false) {
  * En prompt: `claude -p` s sprotnim pošiljanjem elementov na /api/runner/events.
  * Vrne { result, code, session, cancelled }. cancelled = tek je bil ustavljen na strani (410).
  */
-async function runPrompt(runId, job, extraArgs = []) {
-  const args = [...job.args, ...extraArgs];
+async function runPrompt(runId, job, extraSystem = "") {
+  const args = [...job.args];
+  const system = [job.system, extraSystem].filter(Boolean).join("\n\n");
+  if (system) args.push("--append-system-prompt", system);
   if (job.resume) args.push("--resume", job.resume);
   const env = cleanEnv();
 
@@ -388,7 +393,7 @@ async function live() {
     if (!n.run) { await sleep(3000); continue; }
     state.prompts.push(n.run.prompt);
     save();
-    const r = await runPrompt(n.run.id, n.run, ["--append-system-prompt", sys]);
+    const r = await runPrompt(n.run.id, n.run, sys);
     if (!r.cancelled) {
       await post("/api/runner/finish", { run_id: n.run.id, result: r.result, status: r.code ? "error" : "done", session_id: r.session })
         .catch((e) => console.error("finish:", e.message));
@@ -524,10 +529,13 @@ async function publishJob() {
     if (existsSync(PATCH) && statSync(PATCH).size > 0) {
       git("apply", "--index", "--binary", "--whitespace=nowarn", PATCH);
     }
+    const migrations = changedMigrations();
     out = await publish({
       base: info.branch, mode: info.mode, branch: "klodi/" + RUN.slice(0, 8),
       title: info.title, message: info.message, fresh: true,
     });
+    // kartica „Migracija baze“ v Klodiju: samo če so spremembe res objavljene
+    if (migrations.length && (out.commit_sha || out.pr_url)) out.migrations = migrations;
   } catch (e) {
     out = { error: scrub(e) };
   }
@@ -535,17 +543,87 @@ async function publishJob() {
   else await post("/api/runner/finish", { status: out.error ? "error" : "done", ...out });
 }
 
+// ---------- workflow v4: migracije baze ----------
+const MIG_DIR = "supabase/migrations/";
+const MIG_MAX = 120_000; // psql -c: en argument (Linux MAX_ARG_STRLEN = 128 KiB)
+
+/** Job „objavi“: nove ali spremenjene datoteke supabase/migrations/*.sql v patchu (po imenu). */
+function changedMigrations() {
+  const raw = execFileSync("git", ["diff", "--cached", "--name-status", "-z", "--diff-filter=AM", "HEAD", "--", MIG_DIR], { encoding: "utf8" });
+  const parts = raw.split("\0").filter(Boolean), out = [];
+  for (let i = 0; i + 1 < parts.length; i += 2) {
+    const path = parts[i + 1];
+    if (!/\.sql$/i.test(path) || out.length >= 20) continue;
+    const sql = readFileSync(path, "utf8");
+    out.push({ path, sql: sql.length > MIG_MAX ? sql.slice(0, MIG_MAX) : sql, changed: parts[i] === "M", big: sql.length > MIG_MAX });
+  }
+  return out.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+const lf = (s) => String(s).replace(/\r\n/g, "\n");
+const stamp = (d) => d.toISOString().replace(/\D/g, "").slice(0, 14);
+
+/**
+ * Job „migriraj“ (svež stroj, brez Clauda, edini s SUPABASE_DB_URL): SQL, ki ga je uporabnik
+ * potrdil v Klodiju, mora biti enak datoteki v privzeti veji. Vse datoteke v eni transakciji,
+ * zapis v supabase_migrations.schema_migrations (kot Supabase CLI/MCP). SQL gre strežniku prek
+ * `psql -c` kot en niz: psql ga ne razčlenjuje, zato ukazi psql (\! …) ne delujejo.
+ */
+async function migrate() {
+  const m = await post("/api/runner/migration", { op: "start", gh_run_id: process.env.GITHUB_RUN_ID, gh_run_url: ghRunUrl() });
+  const done = (body) => post("/api/runner/migration", { op: "finish", ...body });
+  const url = process.env.SUPABASE_DB_URL;
+  if (!url) return done({ error: "V repozitoriju ni secreta SUPABASE_DB_URL." });
+  const parts = ["begin;"], log = [];
+  const t0 = Date.now();
+  for (const [i, f] of m.files.entries()) {
+    if (!existsSync(f.path) || lf(readFileSync(f.path, "utf8")) !== lf(f.sql)) {
+      return done({ error: `${f.path} v veji ${m.branch} ni enaka potrjenemu SQL${m.pr ? " (je PR že združen?)" : ""}.` });
+    }
+    let tag;
+    do tag = "$klodi_" + Math.random().toString(36).slice(2, 10) + "$"; while (f.sql.includes(tag));
+    const name = f.path.split("/").pop().replace(/\.sql$/i, "").replace(/^\d+_/, "");
+    // nova vrstica: zadnja vrstica je lahko komentar; prazen stavek (;) Postgresu ni napaka
+    parts.push(f.sql + "\n;");
+    parts.push(`insert into supabase_migrations.schema_migrations (version, name, statements) values ('${stamp(new Date(t0 + i * 1000))}', ${tag}${name}${tag}, array[${tag}${f.sql}${tag}]);`);
+    log.push(f.path);
+  }
+  parts.splice(1, 0, "create schema if not exists supabase_migrations;",
+    "create table if not exists supabase_migrations.schema_migrations (version text not null primary key, statements text[], name text);");
+  parts.push("commit;");
+  const sql = parts.join("\n");
+  if (sql.length > MIG_MAX) return done({ error: "Migracija je prevelika za samodejno izvedbo (> 120 KB). Razdeli jo ali jo izvedi ročno." });
+
+  const res = await new Promise((resolveRes) => {
+    const p = spawn("psql", [url, "-X", "-q", "-v", "ON_ERROR_STOP=1", "-c", sql], {
+      env: { PATH: process.env.PATH, HOME: process.env.HOME, PGCONNECT_TIMEOUT: "20", PGAPPNAME: "klodi-migrate" },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let outBuf = "";
+    p.stdout.on("data", (d) => { outBuf = (outBuf + d).slice(-8000); });
+    p.stderr.on("data", (d) => { outBuf = (outBuf + d).slice(-8000); });
+    p.on("error", (e) => resolveRes({ code: 1, out: "psql: " + e.message }));
+    p.on("close", (code) => resolveRes({ code, out: outBuf }));
+  });
+  const out = res.out.replace(/postgres(?:ql)?:\/\/[^\s@]+@/gi, "postgresql://***@").trim();
+  console.log(out);
+  if (res.code) return done({ error: short(out, 1500) || "psql: izhod " + res.code });
+  return done({ output: (log.join("\n") + (out ? "\n\n" + out : "")).slice(0, 4000) });
+}
+
 const cmd = process.argv[2];
 const main = cmd === "finish" ? finish() // workflow v2 (isti stroj kot Claude)
   : cmd === "pack" ? Promise.resolve().then(pack)
   : cmd === "publish" ? publishJob()
+  : cmd === "migrate" ? migrate()
   : LIVE ? live() : runClaude();
 main.then(() => {
   if (LIVE && cmd !== "finish" && cmd !== "pack" && cmd !== "publish") process.exit(0); // otroški procesi (tunel) ne smejo držati koraka
 }).catch(async (e) => {
   console.error(e);
   try {
-    if (LIVE) await session("finish", { error: short(e.message, 600) });
+    if (cmd === "migrate") await post("/api/runner/migration", { op: "finish", error: short(e.message, 600) });
+    else if (LIVE) await session("finish", { error: short(e.message, 600) });
     else await post("/api/runner/finish", { status: "error", error: short(e.message, 600) });
   } catch {}
   process.exit(1);

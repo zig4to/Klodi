@@ -7,7 +7,10 @@
 //     spremembe gredo naprej le kot patch (artifact). Claude tako ne more podtakniti
 //     runnerja, git hookov/configa ali programov na PATH koraku z žetonom za push.
 //     Job `objavi` runner prenese na novo, način in vejo vzame z API-ja.
-export const WORKFLOW_VERSION = 3;
+// v4: vhod `migrate` — job `migriraj` (svež stroj, brez Clauda) izvede migracijo baze, ki jo je
+//     uporabnik potrdil v Klodiju; edini dobi secret SUPABASE_DB_URL. Claude dobi kvečjemu
+//     SUPABASE_DB_URL_RO (vloga brez pravic: samo shema).
+export const WORKFLOW_VERSION = 4;
 
 export function workflowYaml(apiBase: string): string {
   return `# Klodi v${WORKFLOW_VERSION} — ustvarila aplikacija Klodi (${apiBase}).
@@ -22,8 +25,9 @@ on:
       token: { description: "enkratni žeton", required: true }
       api: { description: "Klodi API", required: true, default: "${apiBase}" }
       live: { description: "živa seja (1)", required: false, default: "" }
+      migrate: { description: "migracija baze (1)", required: false, default: "" }
 concurrency:
-  group: klodi-\${{ inputs.thread_id }}
+  group: klodi-\${{ inputs.migrate == '1' && inputs.run_id || inputs.thread_id }}
   cancel-in-progress: false
 permissions:
   contents: read
@@ -34,6 +38,7 @@ env:
   CC_LIVE: \${{ inputs.live }}
 jobs:
   claude:
+    if: \${{ inputs.migrate != '1' }}
     runs-on: ubuntu-latest
     timeout-minutes: \${{ inputs.live == '1' && 360 || 60 }}
     env:
@@ -62,6 +67,7 @@ jobs:
         env:
           CLAUDE_CODE_OAUTH_TOKEN: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_DB_URL_RO: \${{ secrets.SUPABASE_DB_URL_RO }}
         run: node "$RUNNER_TEMP/bridge.mjs" claude
       - name: Pripravi spremembe
         if: \${{ !cancelled() }}
@@ -75,7 +81,7 @@ jobs:
           if-no-files-found: ignore
   objavi:
     needs: claude
-    if: \${{ !cancelled() }}
+    if: \${{ !cancelled() && inputs.migrate != '1' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -99,5 +105,26 @@ jobs:
         env:
           GH_TOKEN: \${{ github.token }}
         run: node "$RUNNER_TEMP/bridge.mjs" publish
+  migriraj:
+    if: \${{ inputs.migrate == '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Skrij žeton
+        run: echo "::add-mask::$CC_TOKEN"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: psql
+        run: command -v psql || (sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client)
+      - name: Prenesi runner
+        run: curl -fsSL "$CC_API/runner/bridge.mjs" -o "$RUNNER_TEMP/bridge.mjs"
+      - name: Migriraj
+        env:
+          SUPABASE_DB_URL: \${{ secrets.SUPABASE_DB_URL }}
+        run: node "$RUNNER_TEMP/bridge.mjs" migrate
 `;
 }

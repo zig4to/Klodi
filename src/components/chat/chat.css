@@ -240,6 +240,26 @@
   .plan h1, .plan h2, .plan h3 { margin: 10px 0 4px; font-size: 14.5px; }
   .plan-go { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .plan-go .go { background: #8b5cf6; }
+  .mig {
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 12px 14px; border-radius: 14px;
+    border: 1px solid color-mix(in srgb, #0ea5e9 45%, transparent);
+    background: color-mix(in srgb, #0ea5e9 7%, var(--surface));
+    overflow-wrap: anywhere; font-size: 13.5px;
+  }
+  .mig.done { border-color: color-mix(in srgb, var(--on) 45%, transparent); background: color-mix(in srgb, var(--on) 6%, var(--surface)); }
+  .mig.rejected { opacity: .65; }
+  .mig-h { display: flex; align-items: center; gap: 6px; color: #0ea5e9; font: 700 12px ui-sans-serif, system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; }
+  .mig-h svg.i { width: 15px; height: 15px; }
+  .mig.done .mig-h { color: var(--on); }
+  .mig-st { margin-left: auto; font: 11px var(--mono); letter-spacing: 0; text-transform: none; color: var(--soft); }
+  .mig summary { cursor: pointer; }
+  .mig summary code { font: 12px var(--mono); }
+  .mig pre { margin: 6px 0 0; padding: 10px; max-height: 320px; overflow: auto; border-radius: 10px; background: #0a0e17; color: #c9d1d9; font: 12px/1.5 var(--mono); white-space: pre; }
+  .mig pre.mig-out { margin: 0; max-height: 160px; white-space: pre-wrap; }
+  .mig .row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .mig .err { padding: 8px 10px; }
+  .mig a { color: var(--accent); font-weight: 600; }
   #send { width: 42px; min-height: 42px; padding: 0; border-color: transparent; background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
   #send.stop { background: var(--danger); }
 

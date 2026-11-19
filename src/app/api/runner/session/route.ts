@@ -1,6 +1,6 @@
 import { admin } from "@/lib/supabase/admin";
-import { addEvent, body, route, runnerSession } from "@/lib/cloud";
-import { claudeArgs } from "@/lib/rules";
+import { addEvent, body, route, runnerSession, saveMigrations } from "@/lib/cloud";
+import { claudeArgs, systemPrompt } from "@/lib/rules";
 import { inSuite } from "@/lib/suite";
 import type { ChatItem } from "@/lib/types/database.types";
 
@@ -17,6 +17,7 @@ type B = {
   commit_sha?: string;
   commit_url?: string;
   pr_url?: string;
+  migrations?: unknown;
 };
 
 // Runner žive seje: zagon, naslov predogleda, naslednji prompt, konec (commit/PR).
@@ -68,6 +69,7 @@ export const POST = route(async (req: Request) => {
           plan: run.plan,
           args: claudeArgs({ plan: run.plan, auto: repo!.auto, allowed: thread!.allowed }),
           resume: thread!.session_id,
+          system: systemPrompt(repo!),
         },
       };
     }
@@ -100,6 +102,9 @@ export const POST = route(async (req: Request) => {
   const { data: last } = await db.from("cloud_runs").select("id,user_id").eq("session_id", s.id)
     .order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (last) for (const it of items) await addEvent(last, it, 1000);
+  if (!b.error && (b.commit_sha || b.pr_url) && b.migrations) {
+    await saveMigrations({ user_id: s.user_id, repo_id: s.repo_id, thread_id: s.thread_id, run_id: last?.id ?? null, session_id: s.id }, b.migrations, b);
+  }
   await db.from("cloud_runs").update({ status: "cancelled", finished_at: now })
     .eq("session_id", s.id).in("status", ["queued", "running"]);
   await db.from("cloud_sessions").update({

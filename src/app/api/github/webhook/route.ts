@@ -57,6 +57,16 @@ export async function POST(req: Request) {
           ended_at: now,
         }).eq("id", s.id);
       }
+      // migracija (job „migriraj“): runner ni javil izida
+      const { data: mig } = await db.from("cloud_migrations").select("id,status").eq("id", m[1]).maybeSingle();
+      if (mig && (mig.status === "queued" || mig.status === "running")) {
+        await db.from("cloud_migrations").update({
+          status: "error",
+          error: wr.conclusion === "cancelled" ? "Ustavljeno" : `Tek v GitHub Actions ni uspel (${wr.conclusion}). Preveri dnevnik.`,
+          gh_run_url: wr.html_url,
+          finished_at: new Date().toISOString(),
+        }).eq("id", mig.id);
+      }
     }
   }
   return NextResponse.json({ ok: true });

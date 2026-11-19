@@ -157,6 +157,38 @@ export default function Setup() {
         </div>
       </section>
 
+      {/* Baza (neobvezno) */}
+      <section id="baza" className={CARD}>
+        <div className="flex items-start gap-3">
+          <span className={STEP} style={{ background: "#6366f1" }}>DB</span>
+          <div className="min-w-0 flex-1">
+            <h2 className="font-semibold">Baza Supabase (neobvezno)</h2>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Claude migracij <b>nikoli ne izvede sam</b>: napiše <code>supabase/migrations/*.sql</code>, ti SQL pregledaš v pogovoru in
+              klikneš <b>Izvedi migracijo</b>. Izvede jo ločen job na svežem stroju, ki edini dobi secret{" "}
+              <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">SUPABASE_DB_URL</code>. Secrete dodaš sam, Klodi vidi le njihova imena.
+            </p>
+            <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm">
+              <li>
+                V Supabase → <b>Connect</b> kopiraj <b>Session pooler</b> niz (GitHub Actions nima IPv6, direktna povezava ne deluje),
+                vstavi geslo baze in ga dodaj kot secret za migracije:
+                <Cmd text="gh secret set SUPABASE_DB_URL -R <lastnik>/<repo>" />
+              </li>
+              <li>
+                Da Claude vidi shemo (tabele, stolpce, RLS), v SQL Editorju ustvari vlogo <b>brez pravic</b> (podatkov ne vidi, pisati ne more) z
+                lastnim geslom:
+                <Cmd text="create role klodi_ro with login noinherit password 'DOLGO_NAKLJUČNO_GESLO'; alter role klodi_ro set default_transaction_read_only = on; alter role klodi_ro set statement_timeout = '15s';" />
+                in jo dodaj kot drugi secret (niz kot zgoraj, uporabnik <code>klodi_ro.&lt;ref&gt;</code> namesto <code>postgres.&lt;ref&gt;</code>):
+                <Cmd text="gh secret set SUPABASE_DB_URL_RO -R <lastnik>/<repo>" />
+              </li>
+              <li className="text-gray-500 dark:text-gray-400">
+                Klikni <b>Preveri</b> pri repozitoriju. V načinu PR se migracija izvede šele, ko je PR združen.
+              </li>
+            </ol>
+          </div>
+        </div>
+      </section>
+
       {/* 3. Repozitoriji */}
       <section id="repozitoriji" className={CARD}>
         <div className="flex items-start gap-3">
@@ -191,6 +223,15 @@ export default function Setup() {
                       <span className={`rounded-full px-2 py-0.5 font-medium ${r.secret_name ? "bg-green-500/15 text-green-700 dark:text-green-400" : "bg-amber-500/15 text-amber-700 dark:text-amber-400"}`}>
                         {r.secret_name ? r.secret_name : "Manjka secret"}
                       </span>
+                      {["SUPABASE_DB_URL", "SUPABASE_DB_URL_RO"].map((n) => (
+                        <span
+                          key={n}
+                          title={n === "SUPABASE_DB_URL" ? "Migracije (job migriraj)" : "Shema za Clauda (samo branje)"}
+                          className={`rounded-full px-2 py-0.5 font-medium ${(r.db_secrets || []).includes(n) ? "bg-green-500/15 text-green-700 dark:text-green-400" : "bg-gray-500/10 text-gray-500 dark:text-gray-400"}`}
+                        >
+                          {n.replace("SUPABASE_", "")}
+                        </span>
+                      ))}
                       {!r.secret_name && (
                         <a href={`${gh}/settings/secrets/actions/new`} target="_blank" rel="noopener" className="font-medium text-sky-600 hover:underline dark:text-sky-400">
                           Dodaj secret
