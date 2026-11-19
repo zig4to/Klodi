@@ -515,6 +515,22 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
   // ---------- izris ----------
   const ready = !!repo.workflow_installed_at && !!repo.secret_name;
 
+  // Odprto s kartice na nadzorni plošči (?zivo=1): živa seja se zažene sama,
+  // če še ne teče in Claude ne dela. Parameter odstranimo, da je osvežitev ne zažene znova.
+  const autoLive = useRef(false);
+  useEffect(() => {
+    if (!loaded || autoLive.current) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("zivo") !== "1") return;
+    autoLive.current = true;
+    url.searchParams.delete("zivo");
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    if (!ready || OPEN(live) || running) return;
+    // brez čiščenja: ref prepreči drugi zagon (tudi v StrictMode)
+    setTimeout(toggleLive, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
+
   function renderItems(run: CloudRun, live: boolean) {
     const list = events[run.id] || [];
     const out: React.ReactNode[] = [];

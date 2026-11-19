@@ -56,7 +56,7 @@ export default async function Home() {
             return (
               <Link
                 key={r.id}
-                href={`/r/${r.id}`}
+                href={ready ? `/r/${r.id}?zivo=1` : `/r/${r.id}`}
                 className="group relative flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-3.5 transition hover:-translate-y-0.5 hover:shadow-md dark:border-gray-800 dark:bg-gray-900"
                 style={{ ["--a" as string]: repoStyle(r).accent, ["--b" as string]: repoStyle(r).accent2 }}
               >
