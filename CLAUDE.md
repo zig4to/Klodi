@@ -13,7 +13,8 @@ njegova naročnina ali API ključ), dogodki pridejo prek Supabase Realtime,
 spremembe gredo po koncu teka direktno v privzeto vejo ali v PR (nastavitev
 repozitorija). Gumb **Push** (na mestu nekdanjega Nov pogovor) deluje samo v živi seji:
 konča sejo in objavi (`/api/live` op `end`); gumb Živo sejo samo zažene (med zagonom prekliče).
-Kartica na nadzorni plošči odpre `/r/<id>?zivo=1` → `CloudChat` živo sejo zažene sam (če ne teče
+Po Push (seja `ended`, največ 15 min po kliku, oznaka `cc-<repo>-relive` v localStorage) `CloudChat`
+živo sejo sam znova prižge v istem pogovoru. Kartica na nadzorni plošči odpre `/r/<id>?zivo=1` → `CloudChat` živo sejo zažene sam (če ne teče
 in Claude ne dela), parameter nato odstrani.
 `/api/new` ostaja, gumba zanj ni.
 

@@ -500,9 +500,23 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
   async function pushLive() {
     try {
       await call("/api/live", { op: "end" });
-      note("Push: končujem živo sejo, spremembe gredo " + (repo.mode === "pr" ? "v pull request." : "v " + repo.default_branch + "."));
+      store(K + "-relive", String(Date.now()));
+      note("Push: objavljam spremembe " + (repo.mode === "pr" ? "v pull request" : "v " + repo.default_branch) + ", nato se živa seja sama znova prižge.");
     } catch {}
   }
+
+  // Po Push (seja objavljena = ended) živo sejo samodejno znova prižgemo — isti pogovor,
+  // Claude ohrani kontekst. Ob napaki objave ne (najprej poglej napako).
+  const liveEnded = live?.status === "ended" || live?.status === "error" ? live.status : null;
+  useEffect(() => {
+    const at = Number(store(K + "-relive") || 0);
+    if (!loaded || !liveEnded || !at) return;
+    store(K + "-relive", "0");
+    if (Date.now() - at > 15 * 60_000) return; // star Push (aplikacija je bila zaprta): ne prižigaj
+    if (liveEnded !== "ended" || !repo.workflow_installed_at || !repo.secret_name || running) return;
+    setTimeout(toggleLive, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, liveEnded]);
 
   function grow() {
     const t = taRef.current;
