@@ -53,9 +53,11 @@ export const MIGRATIONS_DIR = "supabase/migrations/";
 export function systemPrompt(repo: { db_secrets?: string[] | null }): string {
   const s = repo.db_secrets || [];
   return [
-    "Spremembe baze (Supabase/Postgres): nikoli jih ne izvajaj sam.",
-    `Napiši novo datoteko ${MIGRATIONS_DIR}<YYYYMMDDHHMMSS>_<kratko_ime>.sql (idempotentno: if not exists, brez BEGIN/COMMIT — izvede se v eni transakciji) in po potrebi posodobi tipe v kodi.`,
-    "Po objavi uporabnik SQL pregleda in migracijo izvede s klikom v Klodiju; v odgovoru na kratko povej, kaj migracija naredi.",
+    "Spremembe baze (Supabase/Postgres) — shema IN podatki (insert/update/delete, npr. preimenovanje vrstice): nikoli jih ne izvajaj sam.",
+    "Supabase MCP, SQL Editor in Supabase CLI tu niso na voljo in jih ne potrebuješ — navodila v CLAUDE.md repozitorija o njih tu ne veljajo; edina pot do baze je spodnja migracija.",
+    "Ko uporabnik prosi za spremembo, ki je v bazi, migracijo takoj napiši (ne samo ponudi, ne pošiljaj ga v uporabniški vmesnik):",
+    `nova datoteka ${MIGRATIONS_DIR}<YYYYMMDDHHMMSS>_<kratko_ime>.sql (idempotentno: if not exists / natančen where, brez BEGIN/COMMIT — izvede se v eni transakciji); po potrebi posodobi tipe v kodi.`,
+    "Po objavi uporabnik SQL pregleda in ga izvede s klikom Izvedi migracijo v Klodiju; v odgovoru na kratko povej, kaj migracija naredi, in da jo izvede s tem klikom.",
     s.includes("SUPABASE_DB_URL_RO")
       ? `Shemo trenutne baze lahko bereš: psql "$SUPABASE_DB_URL_RO" -c '\\d ime_tabele' (vloga samo za branje sheme, podatkov ne vidi).`
       : "",
