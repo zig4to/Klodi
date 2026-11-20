@@ -19,14 +19,19 @@ export const POST = route(async (req: Request) => {
   const email = u?.user?.email;
   if (ue || !email) throw new HttpError(400, "Uporabnik nima e-pošte");
 
-  const { data: link, error: le } = await admin().auth.admin.generateLink({ type: "magiclink", email });
-  if (le || !link?.properties?.hashed_token) throw new Error("generateLink: " + (le?.message ?? "brez žetona"));
-
   const anon = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const { data, error } = await anon.auth.verifyOtp({ type: "magiclink", token_hash: link.properties.hashed_token });
-  if (error || !data.session) throw new Error("verifyOtp: " + (error?.message ?? "brez seje"));
-
-  return { access_token: data.session.access_token, refresh_token: data.session.refresh_token };
+  // Uporabnik ima naenkrat le en veljaven magic link: vzporeden klic (CloudChat ob
+  // nalaganju zamenja naslov predogleda) prejšnjega razveljavi → otp_expired → znova.
+  let last = "";
+  for (let i = 0; i < 4; i++) {
+    const { data: link, error: le } = await admin().auth.admin.generateLink({ type: "magiclink", email });
+    if (le || !link?.properties?.hashed_token) throw new Error("generateLink: " + (le?.message ?? "brez žetona"));
+    const { data, error } = await anon.auth.verifyOtp({ type: "magiclink", token_hash: link.properties.hashed_token });
+    if (data.session) return { access_token: data.session.access_token, refresh_token: data.session.refresh_token };
+    last = error?.message ?? "brez seje";
+    await new Promise((r) => setTimeout(r, 150 + Math.random() * 350));
+  }
+  throw new Error("verifyOtp: " + last);
 });
