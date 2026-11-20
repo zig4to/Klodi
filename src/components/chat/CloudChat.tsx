@@ -238,24 +238,28 @@ export default function CloudChat({ repo: initialRepo, title, userId }: Props) {
   // da se v okvirju prijavi sama. Piškotke v iframu omogočata: v živi seji
   // runnerjev proxy, v objavljenih Next aplikacijah SameSite=None
   // (cookie-options.ts); statične aplikacije imajo sejo v localStorage.
-  // Žetona sveža ob vsakem nalaganju okvirja in ob novem naslovu predogleda.
+  // Ob vsakem nalaganju okvirja in novem naslovu predogleda NOVA seja z /api/sso —
+  // nikoli Klodijeva: deljen refresh token se ob rotaciji v okvirju prekliče
+  // (session_not_found), SSO odpove, Klodi pa se ob naslednji osvežitvi odjavi.
   const suiteApp = inSuite(repo.full_name);
   const ssoKey = frameKey + "|" + liveUrl;
   useEffect(() => {
     if (!suiteApp) return;
     let off = false;
-    supabase.auth.getSession().then(({ data }) => {
-      if (off) return;
-      const s = data.session;
-      setSso({
-        key: ssoKey,
-        hash: s ? `#sb_at=${encodeURIComponent(s.access_token)}&sb_rt=${encodeURIComponent(s.refresh_token)}` : "",
+    fetch("/api/sso", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ repo_id: repo.id }) })
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null)
+      .then((s: { access_token: string; refresh_token: string } | null) => {
+        if (off) return;
+        setSso({
+          key: ssoKey,
+          hash: s ? `#sb_at=${encodeURIComponent(s.access_token)}&sb_rt=${encodeURIComponent(s.refresh_token)}` : "",
+        });
       });
-    });
     return () => {
       off = true;
     };
-  }, [supabase, suiteApp, ssoKey]);
+  }, [suiteApp, ssoKey, repo.id]);
   const ssoReady = !suiteApp || sso?.key === ssoKey;
 
   // po objavi v main: predogled osveži, ko deploy verjetno konča

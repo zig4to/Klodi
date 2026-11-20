@@ -90,7 +90,9 @@ vpis tokena.
    Prompti v seji ne naredijo dispatcha (`startRun` jih samo postavi v vrsto).
    Konec: Push (status `ending`), 20 min brez dela ali 340 min → job
    „objavi“ commita vse naenkrat → op `finish`. Ustavi v seji ustavi le
-   trenutni prompt. Aplikacijam iz zbirke `CloudChat` poda prijavo kot hub (`#sb_at=…&sb_rt=…` v src okvirja). Runner poda javna
+   trenutni prompt. Aplikacijam iz zbirke `CloudChat` poda prijavo kot hub (`#sb_at=…&sb_rt=…` v src okvirja) —
+   vsakič **novo sejo** iz `/api/sso` (admin `generateLink` magiclink + `verifyOtp` na strežniku), nikoli
+   Klodijeve: deljen refresh token se ob rotaciji v okvirju prekliče (`session_not_found`). Runner poda javna
    `NEXT_PUBLIC_SUPABASE_URL/ANON_KEY`. Next aplikacije rabijo
    `**.trycloudflare.com` v `allowedDevOrigins`, sicer HMR/JS ne deluje.
 8. **Migracije baze** (workflow v4, vedno samo po kliku): Claude migracijo samo napiše
